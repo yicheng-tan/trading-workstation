@@ -1,0 +1,77 @@
+.wrapper {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table thead th {
+  position: sticky;
+  top: 0;
+  background: #f5f6f8;
+  color: #6b7280;
+  font-weight: 600;
+  text-align: right;
+  padding: 5px 8px;
+  border-bottom: 1px solid #e2e5ea;
+  white-space: nowrap;
+}
+
+.table thead th:first-child {
+  text-align: left;
+}
+
+.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sortable:hover {
+  color: #1f2430;
+}
+
+.row {
+  cursor: pointer;
+}
+
+.row:hover {
+  background: #f5f8ff;
+}
+
+.row td {
+  padding: 5px 8px;
+  border-bottom: 1px solid #f0f1f3;
+}
+
+.symbolCell {
+  text-align: left;
+  font-weight: 600;
+  color: #1f2430;
+}
+
+.numCell {
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #1f2430;
+}
+
+.gain {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.loss {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.empty {
+  text-align: center;
+  color: #9aa1ad;
+  padding: 16px;
+}

@@ -1,0 +1,42 @@
+.wrapper {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.toolbar {
+  display: flex;
+  gap: 2px;
+  padding: 4px 6px;
+  border-bottom: 1px solid #eef0f3;
+  background: #fafbfc;
+  flex: 0 0 auto;
+}
+
+.intervalButton,
+.intervalButtonActive {
+  border: 1px solid #d7dbe1;
+  background: #ffffff;
+  color: #434a5c;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.intervalButton:hover {
+  background: #f0f2f5;
+}
+
+.intervalButtonActive {
+  background: #1f2430;
+  color: #ffffff;
+  border-color: #1f2430;
+}
+
+.chartArea {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+}

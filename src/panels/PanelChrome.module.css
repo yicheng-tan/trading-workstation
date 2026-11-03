@@ -1,0 +1,142 @@
+.chrome {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: #ffffff;
+  color: #1f2430;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  border: 1px solid #e2e5ea;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  background: #f5f6f8;
+  border-bottom: 1px solid #e2e5ea;
+  flex: 0 0 auto;
+}
+
+.title {
+  font-weight: 600;
+  color: #33384a;
+  margin-right: 2px;
+  white-space: nowrap;
+}
+
+.symbolInput {
+  width: 84px;
+  padding: 2px 6px;
+  border: 1px solid #c7ccd4;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: #ffffff;
+  color: #1f2430;
+}
+
+.symbolInput:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.linkSelect {
+  padding: 2px 4px;
+  border: 1px solid #c7ccd4;
+  border-radius: 4px;
+  font-size: 11px;
+  background: #ffffff;
+  color: #434a5c;
+}
+
+.statusBadge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.live {
+  background: #e7f7ed;
+  color: #15803d;
+}
+.live .statusDot {
+  background: #22c55e;
+}
+
+.stale {
+  background: #fff6e5;
+  color: #b45309;
+}
+.stale .statusDot {
+  background: #f59e0b;
+}
+
+.reconnecting {
+  background: #fff6e5;
+  color: #b45309;
+}
+.reconnecting .statusDot {
+  background: #f59e0b;
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.offline {
+  background: #fdecec;
+  color: #b91c1c;
+}
+.offline .statusDot {
+  background: #ef4444;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(1.35);
+  }
+}
+
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.footer {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  font-size: 10px;
+  color: #9aa1ad;
+  border-top: 1px solid #eef0f3;
+  background: #fafbfc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

@@ -5,25 +5,54 @@
  * delivery to other windows sharing the same hub.
  */
 export class PortBackpressureGate<T> {
+  private _inFlight = false;
+  private _lastSeqSent = 0;
+  private pending: T | null = null;
+  private hasPending = false;
+  /** The `send` callback captured from the most recent `push()`, reused to flush a coalesced pending payload on ack. */
+  private lastSend: ((payload: T, seq: number) => void) | null = null;
+
   constructor(_opts?: { maxInFlight?: number }) {
-    throw new Error('not implemented');
+    // maxInFlight is reserved for future multi-in-flight support; this gate
+    // always enforces at most one in-flight payload per port.
   }
 
   /** Queue a payload for delivery. Sends immediately if nothing is in flight; otherwise coalesces with any already-pending payload. */
-  push(_payload: T, _send: (payload: T, seq: number) => void): void {
-    throw new Error('not implemented');
+  push(payload: T, send: (payload: T, seq: number) => void): void {
+    this.lastSend = send;
+    if (this._inFlight) {
+      this.pending = payload;
+      this.hasPending = true;
+      return;
+    }
+    this._inFlight = true;
+    this._lastSeqSent += 1;
+    send(payload, this._lastSeqSent);
   }
 
   /** Acknowledge a previously-sent seq; flushes the latest pending payload, if any. */
-  ack(_seq: number): void {
-    throw new Error('not implemented');
+  ack(seq: number): void {
+    if (seq !== this._lastSeqSent) {
+      // Stale/unknown ack - ignore.
+      return;
+    }
+    if (this.hasPending && this.lastSend) {
+      const payload = this.pending as T;
+      this.pending = null;
+      this.hasPending = false;
+      this._lastSeqSent += 1;
+      this.lastSend(payload, this._lastSeqSent);
+      // stays in flight
+    } else {
+      this._inFlight = false;
+    }
   }
 
   get inFlight(): boolean {
-    throw new Error('not implemented');
+    return this._inFlight;
   }
 
   get lastSeqSent(): number {
-    throw new Error('not implemented');
+    return this._lastSeqSent;
   }
 }

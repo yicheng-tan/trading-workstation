@@ -1,0 +1,10 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+coverage/
+.DS_Store
+*.log
+/samples/*.ndjson
+!/samples/sample-btcusdt-1m.ndjson
+.vite/

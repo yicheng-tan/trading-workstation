@@ -1,0 +1,117 @@
+/* Light-theme-only diagnostic overlay; small and unobtrusive by design. */
+
+.perf-overlay {
+  position: fixed;
+  right: 10px;
+  bottom: 10px;
+  z-index: 9999;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--color-text, #1a1d23);
+}
+
+.perf-overlay__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border, #d9dce1);
+  background: var(--color-surface, #ffffff);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  line-height: 1.4;
+}
+
+.perf-overlay__pill:hover {
+  border-color: var(--color-accent, #1458c7);
+}
+
+.perf-overlay__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  background: var(--color-text-muted, #6b7280);
+}
+
+.perf-overlay__dot--live {
+  background: var(--color-buy, #0a7d3c);
+}
+
+.perf-overlay__dot--connecting {
+  background: var(--color-warn, #b7791f);
+}
+
+.perf-overlay__dot--reconnecting {
+  background: var(--color-warn, #b7791f);
+}
+
+.perf-overlay__dot--offline {
+  background: var(--color-offline, #c21e34);
+}
+
+.perf-overlay__panel {
+  margin-top: 6px;
+  min-width: 190px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--color-border, #d9dce1);
+  background: var(--color-surface, #ffffff);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+}
+
+.perf-overlay__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+}
+
+.perf-overlay__row + .perf-overlay__row {
+  border-top: 1px solid var(--color-surface-alt, #f0f1f4);
+}
+
+.perf-overlay__status--live {
+  color: var(--color-buy, #0a7d3c);
+}
+
+.perf-overlay__status--connecting,
+.perf-overlay__status--reconnecting {
+  color: var(--color-warn, #b7791f);
+}
+
+.perf-overlay__status--offline {
+  color: var(--color-offline, #c21e34);
+}
+
+.perf-overlay__benchmark-btn {
+  margin-top: 8px;
+  width: 100%;
+  padding: 5px 0;
+  border-radius: 5px;
+  border: 1px solid var(--color-accent, #1458c7);
+  background: var(--color-surface, #ffffff);
+  color: var(--color-accent, #1458c7);
+  font: inherit;
+  cursor: pointer;
+}
+
+.perf-overlay__benchmark-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.perf-overlay__benchmark-btn:hover:not(:disabled) {
+  background: var(--color-accent, #1458c7);
+  color: #ffffff;
+}
+
+.perf-overlay__benchmark-msg {
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--color-text-muted, #6b7280);
+  word-break: break-word;
+}

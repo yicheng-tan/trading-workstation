@@ -1,0 +1,12 @@
+node_modules/
+dist/
+dist-ssr/
+*.local
+coverage/
+.DS_Store
+*.log
+# Scratch recordings from `npm run record:sample` (scripts/recordSample.ts).
+# One curated copy is committed under public/samples/ for the app to replay.
+/samples/
+.vite/
+*.tsbuildinfo

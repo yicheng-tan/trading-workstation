@@ -1,0 +1,61 @@
+{
+  "restore": "first 325ms, median 325ms, all 30 733ms after navigation",
+  "reports": [
+    {
+      "startedAt": 1793702293693,
+      "durationMs": 60000,
+      "scenario": "30 panels / 10 symbols, live Binance data",
+      "fps": {
+        "p50": 143.7971240575188,
+        "p95": 143.9971200575989,
+        "min": 127.61103585941399
+      },
+      "frameTimeMs": {
+        "p50": 7,
+        "p95": 7.099999999999909,
+        "max": 13.800000000000011
+      },
+      "longTaskCount": 1,
+      "latencyMs": {
+        "p50": 974,
+        "p95": 994
+      },
+      "sampleCount": 121,
+      "environment": {
+        "browser": "Chrome/156.0.8078.79",
+        "headless": true,
+        "viewport": "1920x1080",
+        "panels": 30,
+        "symbols": 10
+      }
+    },
+    {
+      "startedAt": 1793702353964,
+      "durationMs": 60000,
+      "scenario": "30 panels / 10 symbols, 10x replay of BTC/ETH/SOL + live for the rest",
+      "fps": {
+        "p50": 143.5942562297509,
+        "p95": 143.99424023039046,
+        "min": 142.99428022879093
+      },
+      "frameTimeMs": {
+        "p50": 7,
+        "p95": 7.100000000005821,
+        "max": 7.100000000005821
+      },
+      "longTaskCount": 0,
+      "latencyMs": {
+        "p50": 983,
+        "p95": 996
+      },
+      "sampleCount": 121,
+      "environment": {
+        "browser": "Chrome/156.0.8078.79",
+        "headless": true,
+        "viewport": "1920x1080",
+        "panels": 30,
+        "symbols": 10
+      }
+    }
+  ]
+}

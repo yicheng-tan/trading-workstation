@@ -1,0 +1,211 @@
+.wrapper {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.addBar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-bottom: 1px solid #e2e5ea;
+  background: #fafbfc;
+}
+
+.addInput {
+  width: 150px;
+  padding: 2px 6px;
+  border: 1px solid #c7ccd4;
+  border-radius: 4px;
+  font-size: 12px;
+  background: #ffffff;
+  color: #1f2430;
+}
+
+.addInput:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.addInputInvalid,
+.addInputInvalid:focus {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.2);
+}
+
+.addBtn {
+  padding: 2px 8px;
+  border: 1px solid #c7ccd4;
+  border-radius: 4px;
+  font-size: 12px;
+  background: #ffffff;
+  color: #1f2430;
+  cursor: pointer;
+}
+
+.addBtn:hover {
+  background: #f0f1f4;
+}
+
+.addError {
+  font-size: 11px;
+  color: #b91c1c;
+}
+
+.scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table thead th {
+  position: sticky;
+  top: 0;
+  background: #f5f6f8;
+  color: #6b7280;
+  font-weight: 600;
+  text-align: right;
+  padding: 5px 8px;
+  border-bottom: 1px solid #e2e5ea;
+  white-space: nowrap;
+}
+
+.table thead th:first-child {
+  text-align: left;
+}
+
+.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sortable:hover {
+  color: #1f2430;
+}
+
+.row {
+  cursor: pointer;
+}
+
+.row:hover {
+  background: #f5f8ff;
+}
+
+.selectedRow,
+.selectedRow:hover {
+  background: #eaf1ff;
+}
+
+.pendingRow {
+  cursor: default;
+  color: #9aa1ad;
+}
+
+.pendingRow .symbolCell,
+.pendingRow .numCell {
+  color: #9aa1ad;
+}
+
+.row td {
+  padding: 5px 8px;
+  border-bottom: 1px solid #f0f1f3;
+}
+
+.symbolCell {
+  text-align: left;
+  font-weight: 600;
+  color: #1f2430;
+}
+
+.numCell {
+  text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #1f2430;
+}
+
+.gain {
+  color: #15803d;
+  font-weight: 600;
+}
+
+.loss {
+  color: #b91c1c;
+  font-weight: 600;
+}
+
+.flashUp {
+  animation: flashUp 0.8s ease-out;
+}
+
+.flashDown {
+  animation: flashDown 0.8s ease-out;
+}
+
+@keyframes flashUp {
+  from {
+    background: rgba(34, 197, 94, 0.3);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+@keyframes flashDown {
+  from {
+    background: rgba(239, 68, 68, 0.3);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+.row td.removeCell {
+  width: 24px;
+  padding: 0 4px;
+  text-align: center;
+}
+
+.removeBtn {
+  visibility: hidden;
+  border: none;
+  background: transparent;
+  color: #9aa1ad;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+.row:hover .removeBtn,
+.removeBtn:focus-visible {
+  visibility: visible;
+}
+
+.removeBtn:hover {
+  color: #b91c1c;
+  background: #fdecec;
+}
+
+.empty {
+  text-align: center;
+  color: #9aa1ad;
+  padding: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flashUp,
+  .flashDown {
+    animation: none;
+  }
+}

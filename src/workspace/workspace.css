@@ -1,0 +1,371 @@
+/*
+ * Workspace UI styles. Light theme only, by design (PRD constraint) - reuses
+ * the CSS custom properties defined in src/styles/global.css (--color-*,
+ * --font-*) so this stays visually consistent with the rest of the app
+ * without duplicating palette decisions. Dense, high-information layout
+ * suited to a professional trading terminal: small type, tight spacing,
+ * subtle borders instead of heavy chrome.
+ */
+
+.ws-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--color-bg, #f5f6f8);
+  color: var(--color-text, #1a1d23);
+  font-family: var(--font-sans, sans-serif);
+}
+
+/* ---- Toolbar -------------------------------------------------------- */
+
+.ws-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--color-surface, #fff);
+  border-bottom: 1px solid var(--color-border, #d9dce1);
+  flex: 0 0 auto;
+}
+
+.ws-toolbar__group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ws-toolbar__spacer {
+  flex: 1 1 auto;
+}
+
+.ws-toolbar__select,
+.ws-toolbar__input {
+  font-size: 12px;
+  padding: 4px 6px;
+  border: 1px solid var(--color-border, #d9dce1);
+  border-radius: 3px;
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #1a1d23);
+  height: 26px;
+}
+
+.ws-toolbar__input {
+  width: 140px;
+}
+
+.ws-toolbar__input--invalid {
+  border-color: var(--color-sell, #c21e34);
+  box-shadow: 0 0 0 2px rgba(194, 30, 52, 0.15);
+}
+
+.ws-toolbar__input:disabled {
+  background: var(--color-surface-alt, #f0f1f4);
+  color: var(--color-text-muted, #6b7280);
+}
+
+.ws-toolbar__btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  height: 26px;
+  border: 1px solid var(--color-border, #d9dce1);
+  border-radius: 3px;
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #1a1d23);
+  cursor: pointer;
+}
+
+.ws-toolbar__btn:hover {
+  background: var(--color-surface-alt, #f0f1f4);
+}
+
+.ws-toolbar__btn--primary {
+  background: var(--color-accent, #1458c7);
+  border-color: var(--color-accent, #1458c7);
+  color: #fff;
+}
+
+.ws-toolbar__btn--primary:hover {
+  filter: brightness(1.08);
+}
+
+.ws-toolbar__banner {
+  font-size: 12px;
+  padding: 4px 10px;
+  height: 26px;
+  border: 1px solid var(--color-warn, #b7791f);
+  border-radius: 3px;
+  background: var(--color-warn-bg, #fdf3e0);
+  color: var(--color-warn, #b7791f);
+  cursor: pointer;
+}
+
+/* ---- Body / dockview container --------------------------------------- */
+
+.ws-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+.ws-dockview-container {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Light-theme accent tweaks layered over dockview's built-in `themeLight`,
+   kept to the project's own border/surface palette. */
+.ws-dockview.dockview-theme-light {
+  --dv-separator-border: var(--color-border, #d9dce1);
+  --dv-tabs-and-actions-container-background-color: var(--color-surface-alt, #f0f1f4);
+  --dv-group-view-background-color: var(--color-surface, #fff);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--color-surface, #fff);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--color-surface-alt, #f0f1f4);
+  --dv-tabs-and-actions-container-font-size: 12px;
+  --dv-tabs-and-actions-container-height: 28px;
+}
+
+.ws-panel-content {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+}
+
+/* The dock tab already names the panel; pop-outs (no tabs) keep the header title. */
+.ws-panel-content [data-panel-title] {
+  display: none;
+}
+
+.ws-toolbar__source {
+  font-size: 11px;
+  color: var(--color-text-muted, #6b7280);
+  white-space: nowrap;
+}
+
+.ws-panel-unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 100%;
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-muted, #6b7280);
+  font-size: 12px;
+}
+
+/* ---- Custom tab (title + pop-out + close) ---------------------------- */
+
+.ws-tab {
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.ws-tab__row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  max-width: 220px;
+}
+
+.ws-tab__group {
+  flex: 0 0 auto;
+  min-width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+}
+
+.ws-tab__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.ws-tab__btn {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+  line-height: 1;
+  padding: 2px 3px;
+  border-radius: 2px;
+  opacity: 0.65;
+}
+
+.ws-tab__btn:hover {
+  opacity: 1;
+  background: var(--color-surface-alt, #f0f1f4);
+}
+
+.ws-tab__btn--close:hover {
+  color: var(--color-sell, #c21e34);
+}
+
+/* ---- Empty-grid watermark --------------------------------------------- */
+
+.ws-watermark {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ws-watermark__inner {
+  text-align: center;
+  color: var(--color-text-muted, #6b7280);
+  font-size: 12px;
+}
+
+.ws-watermark__hint {
+  font-size: 11px;
+}
+
+/* ---- Layouts side panel ------------------------------------------------ */
+
+.layout-panel {
+  flex: 0 0 320px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--color-border, #d9dce1);
+  background: var(--color-surface, #fff);
+  overflow-y: auto;
+}
+
+.layout-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border, #d9dce1);
+}
+
+.layout-panel__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.layout-panel__close {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--color-text-muted, #6b7280);
+}
+
+.layout-panel__actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border, #d9dce1);
+  flex-wrap: wrap;
+}
+
+.layout-panel__file-input {
+  display: none;
+}
+
+.layout-panel__error {
+  margin: 8px 10px 0;
+  padding: 6px 8px;
+  border-radius: 3px;
+  background: var(--color-sell-bg, #fbe9eb);
+  color: var(--color-sell, #c21e34);
+  font-size: 12px;
+}
+
+.layout-panel__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 auto;
+}
+
+.layout-panel__empty {
+  padding: 16px 10px;
+  color: var(--color-text-muted, #6b7280);
+  font-size: 12px;
+  text-align: center;
+}
+
+.layout-panel__item {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border, #d9dce1);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.layout-panel__item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.layout-panel__name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.layout-panel__badge {
+  align-self: flex-start;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--color-buy-bg, #e6f6ec);
+  color: var(--color-buy, #0a7d3c);
+}
+
+.layout-panel__meta {
+  font-size: 11px;
+  color: var(--color-text-muted, #6b7280);
+}
+
+.layout-panel__item-actions {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.layout-panel__item-actions button {
+  font-size: 11px;
+  padding: 3px 7px;
+  border: 1px solid var(--color-border, #d9dce1);
+  border-radius: 3px;
+  background: var(--color-surface, #fff);
+  color: var(--color-text, #1a1d23);
+  cursor: pointer;
+}
+
+.layout-panel__item-actions button:hover {
+  background: var(--color-surface-alt, #f0f1f4);
+}
+
+.layout-panel__item-actions button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.layout-panel__btn--danger {
+  color: var(--color-sell, #c21e34) !important;
+  border-color: var(--color-sell, #c21e34) !important;
+}

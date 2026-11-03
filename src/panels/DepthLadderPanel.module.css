@@ -1,0 +1,15 @@
+/* Sits on the canvas's spread row, whose top is at (body height - 22px) / 2. */
+.grouping {
+  position: absolute;
+  right: 4px;
+  top: calc(50% - 9px);
+  width: 68px;
+  height: 18px;
+  padding: 0 2px;
+  border: 1px solid #c7ccd4;
+  border-radius: 3px;
+  background: #ffffff;
+  color: #434a5c;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}

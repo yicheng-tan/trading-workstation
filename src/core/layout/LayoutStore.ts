@@ -104,23 +104,8 @@ export class LayoutStore {
   }
 
   setDefault(id: string): void {
-    // Match the *last* doc with this id (walking from the end) rather than
-    // doing a blanket `d.id === id` map: ids are expected to be unique in
-    // practice (they come from `genId()`), but if a caller's id generator
-    // ever produces a repeat, this still lets exactly one stored layout -
-    // the most recently added - become the default instead of flipping
-    // every same-id entry at once.
-    let matchIndex = -1;
-    for (let i = this.docs.length - 1; i >= 0; i -= 1) {
-      if (this.docs[i].id === id) {
-        matchIndex = i;
-        break;
-      }
-    }
-    if (matchIndex === -1) {
-      throw new Error(`Layout not found: ${id}`);
-    }
-    this.docs = this.docs.map((d, i) => ({ ...d, isDefault: i === matchIndex }));
+    this.findOrThrow(id);
+    this.docs = this.docs.map((d) => ({ ...d, isDefault: d.id === id }));
     this.persist();
   }
 

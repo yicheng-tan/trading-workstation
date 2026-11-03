@@ -75,6 +75,7 @@ describe('LayoutStore', () => {
 
   it('setDefault() marks exactly one layout as default at a time', () => {
     const a = store.save({ ...sampleInput, name: 'A' });
+    t = 2000; // distinct timestamp -> distinct id, since genId here is clock-derived
     const b = store.save({ ...sampleInput, name: 'B' });
     store.setDefault(a.id);
     expect(store.getDefault()?.id).toBe(a.id);

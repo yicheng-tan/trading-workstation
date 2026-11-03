@@ -54,7 +54,30 @@ export interface ByeMsg {
   clientId: string;
 }
 
-export type ClientToHubMsg = SubscribeMsg | UnsubscribeMsg | AckMsg | HelloMsg | ByeMsg;
+/** Stress-testing: switch the hub between live Binance data and our own recorded sample, at an adjustable speed. */
+export interface SetReplayModeMsg {
+  type: 'setReplayMode';
+  clientId: string;
+  enabled: boolean;
+  speed?: number;
+}
+
+/** Stress-testing: exercise the reconnect path or the order-book gap-detection/resync path on demand. */
+export interface InjectFaultMsg {
+  type: 'injectFault';
+  clientId: string;
+  kind: 'dropConnection' | 'gap';
+  symbol?: string;
+}
+
+export type ClientToHubMsg =
+  | SubscribeMsg
+  | UnsubscribeMsg
+  | AckMsg
+  | HelloMsg
+  | ByeMsg
+  | SetReplayModeMsg
+  | InjectFaultMsg;
 
 // ---- Hub -> Client ----------------------------------------------------------
 

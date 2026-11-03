@@ -88,14 +88,23 @@
  *     purely for REST fetch failures; this piggybacks on the existing
  *     gap-detection/reconnect machinery rather than adding a second one.
  *
- *  7. Replay / fault injection seam. `setReplayMode` / `injectFault` below
- *     are intentionally-empty TODO integration points. The replay engine
- *     (`@core/replay/ReplayEngine`) and fault injector
- *     (`@core/replay/faultInjection`) are owned by a different workstream
- *     being built in parallel and are deliberately NOT imported here yet.
- *     There is also currently no wire message in `protocol.ts` for
- *     "enter replay mode" / "inject fault" - that's expected to be added
- *     alongside the integration that wires these up for real.
+ *  7. Replay / fault injection. `setReplayMode(true, speed)` fetches our own
+ *     bundled recorded sample (`REPLAY_SAMPLE_URL` - a short NDJSON capture
+ *     of real `depthUpdate`/`aggTrade` frames, recorded by
+ *     `scripts/recordSample.ts`, never an archived Binance dataset) and
+ *     feeds it through `ReplayEngine` at the given speed into the exact
+ *     same `dispatchEvent` routing the live socket uses, so replay is
+ *     indistinguishable from "live" to every panel. While replay is
+ *     active, the live socket is left connected (so reconnect/backoff
+ *     machinery and connection-status reporting stay real and stopping
+ *     replay returns to live instantly) but its inbound frames are
+ *     dropped rather than dispatched - interleaving live and replayed
+ *     update-ids into the same `OrderBookManager` would corrupt it.
+ *     `injectFault('dropConnection')` closes the live
+ *     socket to exercise `ReconnectPolicy`; `injectFault('gap', symbol)`
+ *     arms a one-shot flag consumed by the next `depthUpdate` for that
+ *     symbol (live or replayed), shifting its update-id range via
+ *     `injectSequenceGap` to exercise `OrderBookManager`'s resync path.
  */
 import type {
   AggTradeEvent,
@@ -129,6 +138,16 @@ import { fetchDepthSnapshot, fetchKlines, type FetchFn } from './binanceRest';
 import { classifyTrade, TapeBuffer } from '../panels/tradeTape';
 import { applyKlineEvent } from '../panels/candles';
 import { applyMiniTicker } from '../panels/watchlist';
+import { ReplayEngine, type RecordedEvent } from '../replay/ReplayEngine';
+import { injectSequenceGap } from '../replay/faultInjection';
+
+/** Bundled short recording of our own live Binance stream, used for replay/stress testing (never archived Binance datasets). */
+const REPLAY_SAMPLE_URL = '/samples/sample-btcusdt.ndjson';
+/** Raw shape of one recorded line: the combined-stream envelope exactly as Binance sent it over the wire. */
+interface RecordedEnvelope {
+  stream: string;
+  data: unknown;
+}
 
 /** Most recent N trades kept per symbol, and the size of the snapshot pushed to trade-tape ports (see trade-off #3 above). */
 const TRADE_BUFFER_SIZE = 200;
@@ -224,6 +243,11 @@ export class DataHub {
   private candles = new Map<string, Candle>(); // `${symbol}:${interval}` -> latest candle
   private watchlistRows = new Map<Symbol, WatchlistRow>();
 
+  // --- Replay / fault injection ----------------------------------------
+  private replayEngine: ReplayEngine<RecordedEnvelope> | null = null;
+  private replayActive = false;
+  private pendingGapSymbol: Symbol | null = null;
+
   constructor(opts: DataHubOptions = {}) {
     this.webSocketImpl = opts.webSocketImpl ?? (WebSocket as unknown as WebSocketCtorLike);
     this.fetchImpl = opts.fetchImpl ?? fetch;
@@ -256,24 +280,65 @@ export class DataHub {
       case 'bye':
         this.handleBye(msg);
         break;
+      case 'setReplayMode':
+        this.setReplayMode(msg.enabled, msg.speed);
+        break;
+      case 'injectFault':
+        this.injectFault(msg.kind, msg.symbol as Symbol | undefined);
+        break;
     }
   }
 
-  /** TODO(replay-integration): wire this up to `@core/replay/ReplayEngine` once `protocol.ts` grows a
-   * client->hub message for it. When enabled, the hub should stop feeding `OrderBookManager`/trade/candle/
-   * watchlist state from the live WebSocket and instead feed it from `ReplayEngine`'s `onEvent` callback,
-   * at the given speed, while leaving every downstream broadcast/backpressure/ack path (below) untouched -
-   * replay should be indistinguishable from "live" to a panel. */
-  setReplayMode(_enabled: boolean, _speed?: number): void {
-    console.info('[DataHub] setReplayMode is a documented no-op seam; replay engine integration is pending.');
+  /**
+   * Enters or exits replay mode (see design note #7 at the top of this
+   * file). Fetches our own bundled recorded sample on first enable and
+   * replays it through `ReplayEngine` at `speed`, feeding the exact same
+   * `dispatchEvent` path the live socket uses.
+   */
+  setReplayMode(enabled: boolean, speed = 1): void {
+    if (!enabled) {
+      this.replayEngine?.stop();
+      this.replayEngine = null;
+      this.replayActive = false;
+      return;
+    }
+
+    this.replayActive = true;
+    if (this.replayEngine) {
+      this.replayEngine.setSpeed(speed);
+      return;
+    }
+
+    void this.fetchImpl(REPLAY_SAMPLE_URL)
+      .then((res) => res.text())
+      .then((text) => {
+        const events: RecordedEvent<RecordedEnvelope>[] = text
+          .split('\n')
+          .filter((line) => line.trim().length > 0)
+          .map((line) => JSON.parse(line) as RecordedEvent<RecordedEnvelope>);
+
+        if (events.length === 0 || !this.replayActive) return;
+
+        this.replayEngine = new ReplayEngine<RecordedEnvelope>(
+          events,
+          (envelope) => this.dispatchEvent(envelope.data),
+          { speed },
+        );
+        this.replayEngine.start();
+      })
+      .catch((err) => {
+        console.error('[DataHub] failed to load replay sample:', err);
+        this.replayActive = false;
+      });
   }
 
-  /** TODO(fault-injection-integration): wire this up to `@core/replay/faultInjection` (e.g. `injectSequenceGap`)
-   * once `protocol.ts` grows a client->hub message for it. `'dropConnection'` should call something equivalent
-   * to `this.ws?.close()` to exercise the reconnect path; `'gap'` should shift a live/replayed depth diff's
-   * update-id range for the given symbol before it reaches `OrderBookManager.applyDiff`, to exercise resync. */
-  injectFault(_kind: 'dropConnection' | 'gap', _symbol?: Symbol): void {
-    console.info('[DataHub] injectFault is a documented no-op seam; fault injection integration is pending.');
+  /** `'dropConnection'` exercises the live reconnect path; `'gap'` arms a one-shot update-id shift on the next depthUpdate for `symbol` (live or replayed) to exercise OrderBookManager's resync path. */
+  injectFault(kind: 'dropConnection' | 'gap', symbol?: Symbol): void {
+    if (kind === 'dropConnection') {
+      this.ws?.close();
+      return;
+    }
+    this.pendingGapSymbol = symbol ?? null;
   }
 
   dispose(): void {
@@ -281,6 +346,9 @@ export class DataHub {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.flushTimer = null;
     this.reconnectTimer = null;
+    this.replayEngine?.stop();
+    this.replayEngine = null;
+    this.replayActive = false;
     if (this.ws) {
       this.ws.onopen = null;
       this.ws.onmessage = null;
@@ -690,13 +758,22 @@ export class DataHub {
   // ------------------------------------------------------------------
 
   private handleSocketMessage(raw: string): void {
+    // While replay is active, the live socket stays connected (reconnect
+    // machinery + connection-status stay real) but its frames are dropped -
+    // see design note #7 at the top of this file.
+    if (this.replayActive) return;
+
     let data: unknown;
     try {
       data = JSON.parse(raw);
     } catch {
       return;
     }
+    this.dispatchEvent(data);
+  }
 
+  /** Shared routing for both the live socket (via `handleSocketMessage`) and `ReplayEngine` playback. */
+  private dispatchEvent(data: unknown): void {
     if (Array.isArray(data)) {
       this.handleMiniTickerArray(data as MiniTickerEvent[]);
       return;
@@ -728,6 +805,10 @@ export class DataHub {
   private handleDepthUpdate(evt: DepthDiffEvent): void {
     const manager = this.orderBooks.get(evt.s);
     if (!manager) return;
+    if (this.pendingGapSymbol === evt.s) {
+      this.pendingGapSymbol = null;
+      evt = injectSequenceGap(evt);
+    }
     manager.applyDiff(evt);
     if (manager.needsResync()) {
       void this.syncOrderBook(evt.s);

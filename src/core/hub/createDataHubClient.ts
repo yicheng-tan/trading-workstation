@@ -164,21 +164,11 @@ export function createDataHubClient(windowRole: 'main' | 'popout' = 'main'): Dat
     },
 
     setReplayMode(enabled: boolean, speed?: number): void {
-      // TODO(replay-integration): protocol.ts has no client->hub message
-      // for this yet. Once added, this should `send({ type: 'setReplayMode', enabled, speed })`
-      // and the hub-side `DataHub.setReplayMode` seam should drive `@core/replay/ReplayEngine`.
-      console.info(
-        `[DataHubClient] setReplayMode(${enabled}, speed=${speed ?? 1}) is a documented no-op; replay engine integration is pending.`,
-      );
+      send({ type: 'setReplayMode', clientId, enabled, speed });
     },
 
     injectFault(kind: 'dropConnection' | 'gap', symbol?: Symbol): void {
-      // TODO(fault-injection-integration): protocol.ts has no client->hub
-      // message for this yet. Once added, this should `send({ type: 'injectFault', kind, symbol })`
-      // driving `@core/replay/faultInjection` on the hub side.
-      console.info(
-        `[DataHubClient] injectFault(${kind}${symbol ? `, ${symbol}` : ''}) is a documented no-op; fault injection integration is pending.`,
-      );
+      send({ type: 'injectFault', clientId, kind, symbol });
     },
 
     dispose(): void {

@@ -5,6 +5,7 @@ dist-ssr/
 coverage/
 .DS_Store
 *.log
-/samples/*.ndjson
-!/samples/sample-btcusdt-1m.ndjson
+# Scratch recordings from `npm run record:sample` (scripts/recordSample.ts).
+# One curated copy is committed under public/samples/ for the app to replay.
+/samples/
 .vite/

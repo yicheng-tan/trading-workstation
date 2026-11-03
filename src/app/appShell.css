@@ -1,0 +1,24 @@
+.stress-controls-toggle {
+  position: fixed;
+  left: 10px;
+  bottom: 10px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.stress-controls-toggle__btn {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.stress-controls-toggle__btn:hover {
+  background: var(--color-surface-alt);
+}

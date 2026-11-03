@@ -6,6 +6,7 @@ import { usePanelLink } from './usePanelLink';
 import { deriveStreamStatus, usePeriodicCheck, type PanelStatus } from './panelStatus';
 import { sortWatchlist, type WatchlistSortKey } from '../core/panels/watchlist';
 import { DEFAULT_WATCHLIST_SYMBOLS } from './registry';
+import { priceDecimals } from './priceFormat';
 import type { ConnectionStatus } from '../core/hub/protocol';
 import type { WatchlistRow } from '../core/types';
 import styles from './WatchlistPanel.module.css';
@@ -16,11 +17,19 @@ import styles from './WatchlistPanel.module.css';
  * panel renders a handful of table rows (not a dense per-level view) - so
  * plain React state is fine here and keeps row diffing/sorting simple.
  */
-export default function WatchlistPanel({ config, onSymbolChange, onSettingsChange }: PanelProps) {
+export default function WatchlistPanel({ config, onSettingsChange }: PanelProps) {
   const hub = useDataHub();
+  // `config.symbols` is the watched list here, so the link-group symbol
+  // (set by clicking a row) lives in `settings.selectedSymbol` instead.
+  const selectedSymbol = typeof config.settings.selectedSymbol === 'string' ? config.settings.selectedSymbol : 'BTCUSDT';
+  const linkConfig = useMemo(() => ({ ...config, symbols: [selectedSymbol] }), [config, selectedSymbol]);
+  const persistSelectedSymbol = useCallback(
+    (next: string) => onSettingsChange({ ...config.settings, selectedSymbol: next }),
+    [config.settings, onSettingsChange],
+  );
   const { symbol, linkGroup, handleSymbolChange, handleLinkGroupChange } = usePanelLink(
-    config,
-    onSymbolChange,
+    linkConfig,
+    persistSelectedSymbol,
     onSettingsChange,
     'BTCUSDT',
   );
@@ -141,9 +150,7 @@ export default function WatchlistPanel({ config, onSymbolChange, onSettingsChang
 }
 
 function formatPrice(value: number): string {
-  if (value >= 1000) return value.toFixed(2);
-  if (value >= 1) return value.toFixed(4);
-  return value.toFixed(6);
+  return value.toFixed(priceDecimals(value));
 }
 
 function formatVolume(value: number): string {

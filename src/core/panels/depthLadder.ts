@@ -29,7 +29,18 @@ function roundToTickPrecision(value: number, tickSize: number): number {
   return Math.round(value * factor) / factor;
 }
 
-function decimalPlaces(n: number): number {
+/** Display bucket size from price magnitude: coarser for pricier assets, ~4 significant digits below 1 (Binance's finest tick is 1e-8). */
+export function displayTickSize(price: number): number {
+  if (!Number.isFinite(price) || price <= 0) return 0.01;
+  if (price >= 10000) return 1;
+  if (price >= 1000) return 0.5;
+  if (price >= 100) return 0.1;
+  if (price >= 10) return 0.01;
+  if (price >= 1) return 0.001;
+  return Math.max(1e-8, 10 ** (Math.floor(Math.log10(price)) - 3));
+}
+
+export function decimalPlaces(n: number): number {
   const s = n.toString();
   if (s.includes('e-')) {
     // Handle very small tick sizes expressed in exponential notation.

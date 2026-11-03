@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { groupLevelsByTick, withCumulative, computeMidPrice } from './depthLadder';
+import { groupLevelsByTick, withCumulative, computeMidPrice, displayTickSize, decimalPlaces } from './depthLadder';
 import type { PriceLevel } from '../types';
 
 describe('groupLevelsByTick', () => {
@@ -43,6 +43,27 @@ describe('groupLevelsByTick', () => {
     const groupedBids = groupLevelsByTick(bids, 0.5, 'bid');
     const prices = groupedBids.map((l) => l.price);
     expect(prices).toEqual([...prices].sort((a, b) => b - a));
+  });
+});
+
+describe('displayTickSize', () => {
+  it('keeps distinct levels for sub-cent assets instead of collapsing the book', () => {
+    const pepe: PriceLevel[] = [
+      { price: 0.00000471, qty: 1 },
+      { price: 0.0000047, qty: 2 },
+      { price: 0.00000469, qty: 3 },
+    ];
+    const tick = displayTickSize(0.00000471);
+    expect(tick).toBe(1e-8);
+    expect(decimalPlaces(tick)).toBe(8);
+    expect(groupLevelsByTick(pepe, tick, 'bid')).toHaveLength(3);
+  });
+
+  it('scales with magnitude below 1 and keeps the coarser buckets above it', () => {
+    expect(decimalPlaces(displayTickSize(0.0741))).toBe(5);
+    expect(decimalPlaces(displayTickSize(0.5))).toBe(4);
+    expect(displayTickSize(2266)).toBe(0.5);
+    expect(displayTickSize(77000)).toBe(1);
   });
 });
 

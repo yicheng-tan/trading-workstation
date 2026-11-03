@@ -4,7 +4,14 @@ import type { PanelProps } from './PanelProps';
 import PanelChrome from './PanelChrome';
 import { usePanelLink } from './usePanelLink';
 import { deriveOrderBookStatus, type PanelStatus } from './panelStatus';
-import { groupLevelsByTick, withCumulative, computeMidPrice, type LevelWithCumulative } from '../core/panels/depthLadder';
+import {
+  computeMidPrice,
+  decimalPlaces,
+  displayTickSize,
+  groupLevelsByTick,
+  withCumulative,
+  type LevelWithCumulative,
+} from '../core/panels/depthLadder';
 import { COLORS } from './colors';
 import type { ConnectionStatus } from '../core/hub/protocol';
 import type { OrderBookSnapshotView, OrderBookStatus } from '../core/types';
@@ -151,23 +158,6 @@ export default function DepthLadderPanel({ config, onSymbolChange, onSettingsCha
   );
 }
 
-/** Picks a display tick size from price magnitude: coarser buckets for pricier assets. */
-function pickTickSize(price: number): number {
-  if (!Number.isFinite(price) || price <= 0) return 0.01;
-  if (price >= 10000) return 1;
-  if (price >= 1000) return 0.5;
-  if (price >= 100) return 0.1;
-  if (price >= 10) return 0.01;
-  if (price >= 1) return 0.001;
-  return 0.0001;
-}
-
-function decimalsFor(tickSize: number): number {
-  const s = tickSize.toString();
-  const idx = s.indexOf('.');
-  return idx === -1 ? 0 : s.length - idx - 1;
-}
-
 function formatPrice(value: number, decimals: number): string {
   return value.toFixed(Math.min(decimals, 8));
 }
@@ -187,8 +177,8 @@ function renderLadder(ctx: CanvasRenderingContext2D, width: number, height: numb
   }
 
   const refPrice = book.bestBid?.price ?? book.bestAsk?.price ?? book.bids[0]?.price ?? book.asks[0]?.price ?? 100;
-  const tickSize = pickTickSize(refPrice);
-  const decimals = decimalsFor(tickSize);
+  const tickSize = displayTickSize(refPrice);
+  const decimals = decimalPlaces(tickSize);
 
   const sideHeight = Math.max(0, height - MID_ROW_HEIGHT);
   const rowsPerSide = Math.max(1, Math.floor(sideHeight / 2 / ROW_HEIGHT));

@@ -4,23 +4,25 @@ import type { PanelProps } from './PanelProps';
 import PanelChrome from './PanelChrome';
 import { usePanelLink } from './usePanelLink';
 import { deriveStreamStatus, usePeriodicCheck, type PanelStatus } from './panelStatus';
-import { TapeBuffer } from '../core/panels/tradeTape';
 import { COLORS } from './colors';
+import { priceDecimals } from './priceFormat';
 import type { ConnectionStatus } from '../core/hub/protocol';
 import type { TradeTapeEntry } from '../core/types';
 
 /**
  * Same ref + requestAnimationFrame pattern as DepthLadderPanel (see the
- * comment block there for the full rationale): the live trade tape is kept
- * in a `TapeBuffer` referenced via `useRef`, mutated directly inside the
- * `subscribeTrades` callback with no `setState`. A single rAF loop repaints
- * the `<canvas>` from whatever is currently in the buffer. This keeps React
- * re-renders out of the tick-rate path even though individual symbols can
- * print several trades per second, which matters once ~30 panels are doing
- * this simultaneously.
+ * comment block there for the full rationale): the latest trades are kept in
+ * a `useRef`, replaced inside the `subscribeTrades` callback with no
+ * `setState`, and a single rAF loop repaints the `<canvas>` from it. This
+ * keeps React re-renders out of the tick-rate path even though individual
+ * symbols can print several trades per second, which matters once ~30 panels
+ * are doing this simultaneously.
+ *
+ * Each hub message is the full, newest-first tape for the symbol (latest
+ * state wins, so a coalesced or late delivery still shows the right prints),
+ * so it replaces what we hold rather than being appended to it.
  */
 
-const TAPE_CAPACITY = 300;
 const ROW_HEIGHT = 16;
 // `isLarge` on each TradeTapeEntry is already computed upstream (hub-side,
 // via core/panels/tradeTape.classifyTrade + its own threshold) - this panel
@@ -40,7 +42,7 @@ export default function TradeTapePanel({ config, onSymbolChange, onSettingsChang
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sizeRef = useRef({ width: 0, height: 0 });
 
-  const bufferRef = useRef(new TapeBuffer(TAPE_CAPACITY));
+  const tradesRef = useRef<TradeTapeEntry[]>([]);
   const connectionRef = useRef<ConnectionStatus>(hub.getConnectionStatus());
   const lastUpdateRef = useRef<number | null>(null);
 
@@ -48,7 +50,9 @@ export default function TradeTapePanel({ config, onSymbolChange, onSettingsChang
   const statusRef = useRef<PanelStatus>('reconnecting');
 
   const recomputeStatus = useCallback(() => {
-    const next = deriveStreamStatus(connectionRef.current, lastUpdateRef.current, Date.now());
+    // No silence timeout: a quiet symbol printing nothing for a while is the
+    // market, not stale data. Connection loss still shows Reconnecting/Offline.
+    const next = deriveStreamStatus(connectionRef.current, lastUpdateRef.current, Date.now(), Infinity);
     if (next !== statusRef.current) {
       statusRef.current = next;
       setStatus(next);
@@ -68,11 +72,11 @@ export default function TradeTapePanel({ config, onSymbolChange, onSettingsChang
 
   // New symbol -> fresh tape (old symbol's prints are no longer relevant).
   useEffect(() => {
-    bufferRef.current = new TapeBuffer(TAPE_CAPACITY);
+    tradesRef.current = [];
     lastUpdateRef.current = null;
     recomputeStatus();
     return hub.subscribeTrades(symbol, (trades: TradeTapeEntry[]) => {
-      for (const t of trades) bufferRef.current.push(t);
+      tradesRef.current = trades;
       lastUpdateRef.current = Date.now();
       recomputeStatus();
     });
@@ -111,7 +115,7 @@ export default function TradeTapePanel({ config, onSymbolChange, onSettingsChang
       const ctx = canvas?.getContext('2d');
       const { width, height } = sizeRef.current;
       if (ctx && width > 0 && height > 0) {
-        renderTape(ctx, width, height, bufferRef.current.entries);
+        renderTape(ctx, width, height, tradesRef.current);
       }
       raf = requestAnimationFrame(draw);
     };
@@ -150,7 +154,9 @@ function renderTape(ctx: CanvasRenderingContext2D, width: number, height: number
   }
 
   const maxRows = Math.max(1, Math.floor(height / ROW_HEIGHT));
-  const decimals = pickDecimals(entries[0].price);
+  const decimals = priceDecimals(entries[0].price);
+  // Three monospace columns need ~210px; narrower panels drop the time.
+  const showTime = width >= 210;
 
   ctx.font = TAPE_FONT;
   ctx.textBaseline = 'middle';
@@ -175,19 +181,15 @@ function renderTape(ctx: CanvasRenderingContext2D, width: number, height: number
     ctx.fillText(entry.price.toFixed(decimals), 6, y + ROW_HEIGHT / 2);
 
     ctx.fillStyle = COLORS.textPrimary;
-    ctx.textAlign = 'center';
-    ctx.fillText(entry.qty.toFixed(4), width / 2, y + ROW_HEIGHT / 2);
+    ctx.textAlign = showTime ? 'center' : 'right';
+    ctx.fillText(entry.qty.toFixed(4), showTime ? width / 2 : width - 6, y + ROW_HEIGHT / 2);
 
-    ctx.fillStyle = COLORS.textSecondary;
-    ctx.textAlign = 'right';
-    ctx.fillText(formatTime(entry.time), width - 6, y + ROW_HEIGHT / 2);
+    if (showTime) {
+      ctx.fillStyle = COLORS.textSecondary;
+      ctx.textAlign = 'right';
+      ctx.fillText(formatTime(entry.time), width - 6, y + ROW_HEIGHT / 2);
+    }
   }
-}
-
-function pickDecimals(price: number): number {
-  if (price >= 1000) return 2;
-  if (price >= 1) return 4;
-  return 6;
 }
 
 function formatTime(ms: number): string {

@@ -5,7 +5,6 @@ import type { PanelProps } from './PanelProps';
 import PanelChrome from './PanelChrome';
 import { usePanelLink } from './usePanelLink';
 import { deriveStreamStatus, usePeriodicCheck, type PanelStatus } from './panelStatus';
-import { mergeHistory } from '../core/panels/candles';
 import { COLORS } from './colors';
 import type { ConnectionStatus } from '../core/hub/protocol';
 import type { Candle, KlineInterval } from '../core/types';
@@ -39,7 +38,7 @@ export default function CandlestickChartPanel({ config, onSymbolChange, onSettin
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
-  const historyRef = useRef<Candle[]>([]);
+  const lastOpenTimeRef = useRef<number | null>(null);
 
   const connectionRef = useRef<ConnectionStatus>(hub.getConnectionStatus());
   const lastUpdateRef = useRef<number | null>(null);
@@ -104,21 +103,37 @@ export default function CandlestickChartPanel({ config, onSymbolChange, onSettin
     };
   }, []);
 
-  // Re-subscribe whenever symbol or interval changes; a known gap (see final
-  // report) is that the hub only streams forward from subscription time with
-  // no REST backfill yet, so the chart starts empty and fills in live.
+  // Re-subscribe whenever symbol or interval changes. The hub sends the REST
+  // backfill once (`onHistory`, also after a reconnect) and then streams the
+  // in-progress bar.
   useEffect(() => {
-    historyRef.current = [];
+    lastOpenTimeRef.current = null;
     seriesRef.current?.setData([]);
     lastUpdateRef.current = null;
     recomputeStatus();
 
-    return hub.subscribeCandles(symbol, interval, (candle) => {
-      historyRef.current = mergeHistory(historyRef.current, candle);
-      seriesRef.current?.update(toChartPoint(candle));
+    const markUpdated = () => {
       lastUpdateRef.current = Date.now();
       recomputeStatus();
-    });
+    };
+
+    return hub.subscribeCandles(
+      symbol,
+      interval,
+      (candle) => {
+        // lightweight-charts throws on an update older than the last bar.
+        if (lastOpenTimeRef.current !== null && candle.openTime < lastOpenTimeRef.current) return;
+        lastOpenTimeRef.current = candle.openTime;
+        seriesRef.current?.update(toChartPoint(candle));
+        markUpdated();
+      },
+      (history) => {
+        // The hub already merged its latest live bar into `history`.
+        seriesRef.current?.setData(history.map(toChartPoint));
+        lastOpenTimeRef.current = history.length > 0 ? history[history.length - 1].openTime : null;
+        markUpdated();
+      },
+    );
   }, [hub, symbol, interval, recomputeStatus]);
 
   const handleIntervalChange = (next: KlineInterval) => {

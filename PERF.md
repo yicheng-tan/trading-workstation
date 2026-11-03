@@ -104,22 +104,32 @@ From `npm run bench` on 2026-11-03, committed as
 [`perf-results/`](perf-results/): Chrome 156 headless, 1920×1080,
 Windows 11, production build, live Binance Spot data.
 
-| Scenario | First live data | Frame time p50 / p95 / max | Long tasks (>50ms) | Latency p50 / p95 |
-|---|---|---|---|---|
-| **Restore 30-panel / 10-symbol default layout** | first panel 286ms, median 354ms, **all 30 by 1,121ms** after navigation (target < 5s) | — | — | — |
-| **30 panels live, 60s** | — | 7.0 / 7.0 / 13.8ms | **0** | 1,008 / 1,022ms |
-| **Same + 10× replay, 60s** | — | 7.0 / 7.0 / 7.0ms | **0** | 982 / 1,012ms |
+Latest run (`bench-2026-11-03T10-40-17.json`, after the QoL pass):
 
+| Scenario | First live data | Frame time p50 / p95 / worst-window p95 | Long tasks (>50ms) | Latency p50 / p95 |
+|---|---|---|---|---|
+| **Restore 30-panel / 10-symbol default layout** | first panel 325ms, **all 30 by 733ms** after navigation (target < 5s) | — | — | — |
+| **30 panels live, 60s** | — | 7.0 / 7.1 / 13.8ms | **1** | 974 / 994ms |
+| **Same + 10× replay, 60s** | — | 7.0 / 7.1 / 7.1ms | **0** | 983 / 996ms |
+
+The previous run (`bench-2026-11-03T09-51-46.json`, before the QoL pass)
+had 0 long tasks in both scenarios and all 30 panels live by 1,121ms.
 Across several runs while this was being built, "all 30 live" landed
 between 0.5s and 2.3s.
+
+Frame time is sampled as a p95 over a rolling 5s window. The third number
+is the worst of those windows, not the single slowest frame, and the
+long-task column counts individual frames over 50ms.
 
 How to read these honestly:
 
 - **Frame time is pinned at the display interval.** Headless Chrome ticked
   rAF at ~144Hz here, and 7.0ms is that interval, so p95 = p50 = 7.0ms means
   no frame missed its slot. Frame time can't show how much of the 7ms
-  budget was used. Long tasks (0 in both runs) are the stronger signal that
-  the main thread never blocked.
+  budget was used. Long tasks are the stronger signal. The latest live run
+  had one frame over 50ms in 60s; the replay run and the previous run had
+  none. One isolated stall at 144Hz isn't a sustained problem, but it isn't
+  zero either, against a target of 0.
 - **Latency is ~1s and nearly constant, and that's the stream, not this
   app.** p50 and p95 are within ~15–30ms of each other. `!miniTicker@arr`
   pushes once per second, and its `E` timestamps sit about one push

@@ -89,8 +89,8 @@ as you like.
 Everything goes over **one** `/ws` socket, using `SUBSCRIBE`/`UNSUBSCRIBE`
 frames so a symbol change never reconnects. Control messages are capped
 at 5/s and streams at 1024 per connection. Depth resyncs back off
-exponentially (1s to 30s) per symbol, and a 429/418 response pauses all
-REST calls for `Retry-After`. The reference 30-panel restore costs about
+exponentially (1s to 30s) per symbol, and a 429/418 response pauses every
+depth snapshot (the weight-50 calls) for `Retry-After`. The reference 30-panel restore costs about
 600 of the 6,000/min weight budget. If `stream.binance.com` fails
 repeatedly, the hub fails over to `data-stream.binance.vision`.
 
@@ -139,12 +139,12 @@ repeatedly, the hub fails over to `data-stream.binance.vision`.
   silently dropping deltas. The order book's `U`/`u` sequence is the one
   thing integrity-checked explicitly.
 - **Canvas + rAF over a DOM row per price level**, to hold up at the
-  30-panel scale. The cost is hand-written drawing and hit-testing.
+  30-panel scale. The cost is hand-written drawing and text layout.
 - **A `SharedWorker` over a leader-elected socket.** It's the only browser
   primitive that gives every same-origin window one connection with no
   election logic. The cost is no mobile Safari or Chrome Android, which
   doesn't matter for a multi-monitor desktop tool.
-- **Our own pop-out windows over dockview's built-in floating groups.**
+- **Our own pop-out windows over dockview's built-in pop-out groups.**
   Those run in the opener's JavaScript context, so they die with the main
   window and share its main thread.
 - **Quiet is not stale for a tape.** A trade stream has no sequence to
@@ -209,20 +209,22 @@ One Cursor chat acted as orchestrator. All transcripts are exported
   - Replay works, an injected gap goes Stale then resyncs, and a dropped
     connection recovers.
   - A 30-panel / 10-symbol restore shows live data within 5s.
-  - The QoL features each have their own check.
+  - Autosave, symbol entry, duplicate panel, watchlist editing, link
+    colours and price grouping each have a check.
   - No page or worker exceptions occur.
 
   It also passes against the dev server with StrictMode on.
 - **Latest numbers** ([PERF.md](PERF.md), `perf-results/`):
-  - The 30-panel restore shows live data in every panel about 1s after
-    navigation.
-  - Frame time p95 is 7ms, live and at 10× replay, with 0 long tasks.
+  - The 30-panel restore shows live data in every panel 733ms after
+    navigation in the latest run (0.5–2.3s across runs; target under 5s).
+  - Frame time p95 is 7ms, live and at 10× replay. The latest live run had
+    one frame over 50ms in 60s; the replay run had none.
 
 ## Known gaps
 
 - **The hub posts the full book to each window on every diff**, re-sorting
   and copying up to about 1,000 levels per side. The backpressure gate
-  bounds it, and the 30-panel run shows no long tasks. Sending only the top
+  bounds it, and the 30-panel runs stay at the display's frame rate. Sending only the top
   N levels would cut worker CPU several times over.
 - **Canvases repaint every frame even when nothing changed.** That's cheap
   at 30 panels, but wasteful when markets are quiet.
@@ -237,7 +239,11 @@ One Cursor chat acted as orchestrator. All transcripts are exported
   click, so a banner opens the rest.
 - **A gap during replay stays Stale until the loop restarts**, since there
   is no REST to resync recorded data from.
-- **The bundle isn't code-split:** about 860KB minified, 240KB gzipped.
+- **The bundle isn't code-split:** about 870KB minified, 245KB gzipped.
+- **History backfills ignore a rate-limit pause.** Only depth snapshots
+  wait out `Retry-After`. Kline and aggTrade backfills are weight 2–4 and
+  sent once per new stream, so the risk is small, but they should share
+  the pause.
 
 ## What I'd do with another day
 

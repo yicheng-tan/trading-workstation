@@ -288,7 +288,15 @@ export function WorkspaceShell({ initialPanels }: WorkspaceShellProps = {}) {
       );
     },
     updatePanelSettings(panelId, settings) {
-      setPanels((prev) => (prev.some((p) => p.id === panelId) ? prev.map((p) => (p.id === panelId ? { ...p, settings } : p)) : prev));
+      // `usePanelLink` persists link-group changes through this callback as
+      // `settings.linkGroup` (see its header comment - `PanelProps` has no
+      // dedicated callback for it). Promote that back onto the panel's
+      // top-level `linkGroup` field so it round-trips through "save as
+      // layout" correctly instead of only affecting the live session.
+      const linkGroup = (settings as { linkGroup?: string | null }).linkGroup;
+      setPanels((prev) =>
+        prev.map((p) => (p.id === panelId ? { ...p, settings, ...(linkGroup !== undefined ? { linkGroup } : {}) } : p)),
+      );
     },
   };
 

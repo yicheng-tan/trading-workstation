@@ -30,7 +30,13 @@ export function PopoutShell({ initialPanels }: { initialPanels: PanelInstanceCon
   }
 
   function updateSettings(panelId: string, settings: Record<string, unknown>) {
-    setPanels((prev) => prev.map((p) => (p.id === panelId ? { ...p, settings } : p)));
+    // See the matching comment in WorkspaceShell.updatePanelSettings: promote
+    // a link-group change back onto the top-level config for consistency,
+    // even though pop-out windows aren't currently captured by "save layout".
+    const linkGroup = (settings as { linkGroup?: string | null }).linkGroup;
+    setPanels((prev) =>
+      prev.map((p) => (p.id === panelId ? { ...p, settings, ...(linkGroup !== undefined ? { linkGroup } : {}) } : p)),
+    );
   }
 
   return (

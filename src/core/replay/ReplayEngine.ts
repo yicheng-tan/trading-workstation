@@ -18,39 +18,103 @@ export interface ReplayEngineOptions {
  * datasets - only our own short recordings per the PRD.
  */
 export class ReplayEngine<T = unknown> {
+  private readonly setTimeoutFn: (cb: () => void, ms: number) => unknown;
+  private readonly clearTimeoutFn: (handle: unknown) => void;
+  private readonly nowFn: () => number;
+
+  private speed = 1;
+  private _nextIndex = 0;
+  private _isPlaying = false;
+  private timerHandle: unknown | null = null;
+  private scheduledAtMs: number | null = null;
+  private currentDelayMs: number | null = null;
+  private remainingMs: number | null = null;
+
   constructor(
-    _events: RecordedEvent<T>[],
-    _onEvent: (payload: T, index: number) => void,
-    _opts?: ReplayEngineOptions,
+    private readonly events: RecordedEvent<T>[],
+    private readonly onEvent: (payload: T, index: number) => void,
+    opts?: ReplayEngineOptions,
   ) {
-    throw new Error('not implemented');
+    this.setTimeoutFn = opts?.setTimeoutFn ?? ((cb, ms) => setTimeout(cb, ms));
+    this.clearTimeoutFn = opts?.clearTimeoutFn ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
+    this.nowFn = opts?.now ?? (() => Date.now());
+    if (opts?.speed !== undefined) {
+      this.setSpeed(opts.speed);
+    }
   }
 
   start(): void {
-    throw new Error('not implemented');
+    if (this.events.length === 0) return;
+    this._nextIndex = 0;
+    this._isPlaying = true;
+    this.remainingMs = null;
+    const first = this.events[0];
+    this.scheduleTimer(first.tMs / this.speed);
   }
 
   pause(): void {
-    throw new Error('not implemented');
+    if (this.timerHandle !== null) {
+      this.clearTimeoutFn(this.timerHandle);
+      const elapsed = this.nowFn() - (this.scheduledAtMs ?? this.nowFn());
+      this.remainingMs = Math.max(0, (this.currentDelayMs ?? 0) - elapsed);
+      this.timerHandle = null;
+    }
+    this._isPlaying = false;
   }
 
   resume(): void {
-    throw new Error('not implemented');
+    if (this.remainingMs === null) return;
+    this._isPlaying = true;
+    const delay = this.remainingMs;
+    this.remainingMs = null;
+    this.scheduleTimer(delay);
   }
 
   stop(): void {
-    throw new Error('not implemented');
+    if (this.timerHandle !== null) {
+      this.clearTimeoutFn(this.timerHandle);
+      this.timerHandle = null;
+    }
+    this.remainingMs = null;
+    this._isPlaying = false;
+    this._nextIndex = 0;
   }
 
-  setSpeed(_speed: number): void {
-    throw new Error('not implemented');
+  setSpeed(speed: number): void {
+    if (speed <= 0) {
+      throw new Error('ReplayEngine.setSpeed: speed must be a positive number');
+    }
+    this.speed = speed;
   }
 
   get isPlaying(): boolean {
-    throw new Error('not implemented');
+    return this._isPlaying;
   }
 
   get nextIndex(): number {
-    throw new Error('not implemented');
+    return this._nextIndex;
+  }
+
+  private scheduleTimer(delayMs: number): void {
+    this.scheduledAtMs = this.nowFn();
+    this.currentDelayMs = delayMs;
+    this.timerHandle = this.setTimeoutFn(() => this.fire(), delayMs);
+  }
+
+  private fire(): void {
+    this.timerHandle = null;
+    const idx = this._nextIndex;
+    const evt = this.events[idx];
+    this._nextIndex = idx + 1;
+    this.onEvent(evt.payload, idx);
+
+    if (this._nextIndex >= this.events.length) {
+      this._isPlaying = false;
+      return;
+    }
+
+    const next = this.events[this._nextIndex];
+    const delay = (next.tMs - evt.tMs) / this.speed;
+    this.scheduleTimer(delay);
   }
 }

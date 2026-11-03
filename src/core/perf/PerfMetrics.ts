@@ -1,23 +1,60 @@
 /** Nearest-rank percentile: p in [0, 100]. Input need not be pre-sorted. */
-export function percentile(_values: number[], _p: number): number {
-  throw new Error('not implemented');
+export function percentile(values: number[], p: number): number {
+  if (values.length === 0) {
+    throw new Error('percentile: values must not be empty');
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  // Nearest-rank method: rank = ceil(p/100 * N), clamped to [1, N].
+  const rank = Math.min(sorted.length, Math.max(1, Math.ceil((p / 100) * sorted.length)));
+  return sorted[rank - 1];
 }
 
+interface TimestampedSample {
+  value: number;
+  t: number;
+}
+
+/**
+ * A rolling buffer of timestamped values that decays samples older than
+ * `windowMs` (relative to an injectable clock) every time it's read or
+ * pushed to. To avoid a brief polling gap making a live metric look
+ * completely blank, the single most-recently-pushed sample is never
+ * evicted purely due to age - only superseded once a newer sample exists
+ * and the older one(s) fall outside the window.
+ */
 export class RollingWindow {
-  constructor(_windowMs: number, _now?: () => number) {
-    throw new Error('not implemented');
+  private samples: TimestampedSample[] = [];
+  private readonly now: () => number;
+
+  constructor(
+    private readonly windowMs: number,
+    now: () => number = () => Date.now(),
+  ) {
+    this.now = now;
   }
 
-  push(_value: number, _atMs?: number): void {
-    throw new Error('not implemented');
+  push(value: number, atMs?: number): void {
+    const t = atMs ?? this.now();
+    this.samples.push({ value, t });
+    this.evict();
   }
 
   values(): number[] {
-    throw new Error('not implemented');
+    this.evict();
+    return this.samples.map((s) => s.value);
   }
 
-  percentile(_p: number): number | null {
-    throw new Error('not implemented');
+  percentile(p: number): number | null {
+    const vals = this.values();
+    if (vals.length === 0) return null;
+    return percentile(vals, p);
+  }
+
+  private evict(): void {
+    const cutoff = this.now() - this.windowMs;
+    while (this.samples.length > 1 && this.samples[0].t <= cutoff) {
+      this.samples.shift();
+    }
   }
 }
 
@@ -36,6 +73,10 @@ export interface PerfSnapshot {
   sampleCount: number;
 }
 
+const DEFAULT_FRAME_WINDOW_MS = 5000;
+const DEFAULT_LATENCY_WINDOW_MS = 5000;
+const DEFAULT_LONG_TASK_THRESHOLD_MS = 50;
+
 /**
  * Rolling-window performance telemetry: frame cadence (fps / p95 frame time
  * / long-task count) and message-arrival-to-render latency, each decaying
@@ -43,35 +84,52 @@ export interface PerfSnapshot {
  * benchmark report required by the PRD.
  */
 export class PerfMetrics {
-  constructor(_opts?: PerfMetricsOptions) {
-    throw new Error('not implemented');
+  private readonly longTaskThresholdMs: number;
+  private readonly frameWindow: RollingWindow;
+  private readonly latencyWindow: RollingWindow;
+
+  constructor(opts: PerfMetricsOptions = {}) {
+    const now = opts.now ?? (() => Date.now());
+    this.longTaskThresholdMs = opts.longTaskThresholdMs ?? DEFAULT_LONG_TASK_THRESHOLD_MS;
+    this.frameWindow = new RollingWindow(opts.frameWindowMs ?? DEFAULT_FRAME_WINDOW_MS, now);
+    this.latencyWindow = new RollingWindow(opts.latencyWindowMs ?? DEFAULT_LATENCY_WINDOW_MS, now);
   }
 
-  recordFrame(_frameDurationMs: number, _atMs?: number): void {
-    throw new Error('not implemented');
+  recordFrame(frameDurationMs: number, atMs?: number): void {
+    this.frameWindow.push(frameDurationMs, atMs);
   }
 
-  recordMessageLatency(_latencyMs: number, _atMs?: number): void {
-    throw new Error('not implemented');
+  recordMessageLatency(latencyMs: number, atMs?: number): void {
+    this.latencyWindow.push(latencyMs, atMs);
   }
 
   get fps(): number {
-    throw new Error('not implemented');
+    const values = this.frameWindow.values();
+    if (values.length === 0) return 0;
+    const avgFrameMs = values.reduce((sum, v) => sum + v, 0) / values.length;
+    if (avgFrameMs <= 0) return 0;
+    return 1000 / avgFrameMs;
   }
 
   get p95FrameTimeMs(): number | null {
-    throw new Error('not implemented');
+    return this.frameWindow.percentile(95);
   }
 
   get longTaskCount(): number {
-    throw new Error('not implemented');
+    return this.frameWindow.values().filter((v) => v > this.longTaskThresholdMs).length;
   }
 
   get p95LatencyMs(): number | null {
-    throw new Error('not implemented');
+    return this.latencyWindow.percentile(95);
   }
 
   snapshot(): PerfSnapshot {
-    throw new Error('not implemented');
+    return {
+      fps: this.fps,
+      p95FrameTimeMs: this.p95FrameTimeMs,
+      longTaskCount: this.longTaskCount,
+      p95LatencyMs: this.p95LatencyMs,
+      sampleCount: this.frameWindow.values().length,
+    };
   }
 }

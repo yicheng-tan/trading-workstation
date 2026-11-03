@@ -6,6 +6,13 @@ import type { DepthDiffEvent } from '../types';
  * OrderBookManager's gap-detection + resync path under the stress UI's
  * "inject gap" control.
  */
-export function injectSequenceGap(_evt: DepthDiffEvent, _gapSize = 10): DepthDiffEvent {
-  throw new Error('not implemented');
+export function injectSequenceGap(evt: DepthDiffEvent, gapSize = 10): DepthDiffEvent {
+  if (gapSize <= 0) {
+    throw new Error('injectSequenceGap: gapSize must be a positive integer');
+  }
+  return {
+    ...evt,
+    U: evt.U + gapSize,
+    u: evt.u + gapSize,
+  };
 }

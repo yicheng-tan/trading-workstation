@@ -6,16 +6,9 @@
  * `ClientToHubMsg` / `HubToClientMsg` wire protocol (`protocol.ts`,
  * immutable).
  *
- * Known protocol-level gap (can't be fixed from this file - `protocol.ts`
- * is a stable shared contract owned elsewhere): `CandleUpdateMsg` carries
- * `symbol` but not `interval`. If a single window subscribes to two
- * different intervals of the *same* symbol at the same time, incoming
- * candle messages can't be disambiguated by interval here, so both
- * callbacks would receive every candle update for that symbol regardless
- * of interval. This is a pre-existing protocol limitation (not introduced
- * by this file); a real fix would add an `interval` field to
- * `CandleUpdateMsg`. In the common case of one chart interval per symbol
- * per window this never manifests.
+ * `CandleUpdateMsg` carries both `symbol` and `interval`, so concurrent
+ * subscriptions to different intervals of the same symbol on one port are
+ * correctly disambiguated (streamKey includes the interval below).
  */
 import type { DataHubClient } from './DataHubClient';
 import type { ClientToHubMsg, ConnectionStatus, HubToClientMsg } from './protocol';
@@ -57,8 +50,7 @@ export function createDataHubClient(windowRole: 'main' | 'popout' = 'main'): Dat
       case 'aggTrade':
         return `trades:${ref.symbol}`;
       case 'kline':
-        // NOTE: intentionally symbol-only - see the protocol-gap note at the top of this file.
-        return `candle:${ref.symbol}`;
+        return `candle:${ref.symbol}:${ref.interval}`;
       case 'miniTicker':
       case 'miniTickerAll':
         return 'watchlist';
@@ -72,7 +64,7 @@ export function createDataHubClient(windowRole: 'main' | 'popout' = 'main'): Dat
       case 'trades':
         return `trades:${msg.symbol}`;
       case 'candle':
-        return `candle:${msg.symbol}`;
+        return `candle:${msg.symbol}:${msg.interval}`;
       case 'watchlist':
         return 'watchlist';
       default:

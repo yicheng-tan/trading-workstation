@@ -15,6 +15,7 @@ import type {
   StreamRef,
   TradeTapeEntry,
   Candle,
+  KlineInterval,
   WatchlistRow,
 } from '../types';
 
@@ -81,6 +82,8 @@ export interface CandleUpdateMsg {
   type: 'candle';
   seq: number;
   symbol: string;
+  /** Disambiguates concurrent subscriptions to different intervals of the same symbol on one port. */
+  interval: KlineInterval;
   candle: Candle;
 }
 

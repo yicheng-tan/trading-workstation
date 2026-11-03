@@ -346,7 +346,7 @@ export class DataHub {
           void this.seedCandleHistory(symbol, interval);
         } else {
           const candle = this.candles.get(key);
-          if (candle) this.deliverTo(msg.clientId, gateKey, candle, (c, seq) => ({ type: 'candle', seq, symbol, candle: c }));
+          if (candle) this.deliverTo(msg.clientId, gateKey, candle, (c, seq) => ({ type: 'candle', seq, symbol, interval, candle: c }));
         }
         break;
       }
@@ -579,7 +579,7 @@ export class DataHub {
       const latest = history[history.length - 1];
       if (!latest) return;
       this.candles.set(key, latest);
-      this.broadcastToGateKey(`candle:${symbol}:${interval}`, latest, (c, seq) => ({ type: 'candle', seq, symbol, candle: c }));
+      this.broadcastToGateKey(`candle:${symbol}:${interval}`, latest, (c, seq) => ({ type: 'candle', seq, symbol, interval, candle: c }));
     } catch (err) {
       console.error(`[DataHub] failed to fetch kline history for ${symbol} ${interval}:`, err);
     }
@@ -759,6 +759,7 @@ export class DataHub {
       type: 'candle',
       seq,
       symbol: evt.s,
+      interval: evt.k.i,
       candle: c,
     }));
   }

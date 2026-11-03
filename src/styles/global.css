@@ -1,0 +1,62 @@
+/* Light theme only, by design (PRD constraint) - no dark mode, no toggle. */
+:root {
+  --color-bg: #f5f6f8;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f0f1f4;
+  --color-border: #d9dce1;
+  --color-text: #1a1d23;
+  --color-text-muted: #6b7280;
+  --color-buy: #0a7d3c;
+  --color-buy-bg: #e6f6ec;
+  --color-sell: #c21e34;
+  --color-sell-bg: #fbe9eb;
+  --color-accent: #1458c7;
+  --color-warn: #b7791f;
+  --color-warn-bg: #fdf3e0;
+  --color-offline: #c21e34;
+
+  --font-sans: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: 'Cascadia Code', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+
+  color-scheme: light only;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+}
+
+button,
+input,
+select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-surface-alt);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c3c7cf;
+  border-radius: 5px;
+}

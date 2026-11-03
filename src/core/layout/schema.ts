@@ -27,7 +27,14 @@ export const windowSchema = z.object({
   role: z.enum(['main', 'popout']),
   bounds: rectSchema.optional(),
   screenId: z.string().optional(),
-  panelIds: z.array(z.string().min(1)).min(1),
+  panelIds: z.array(z.string().min(1)),
+  /**
+   * Opaque docking-grid state for this window (dockview's `toJSON()` for the
+   * main window): exact splits, sizes, tab groups and active tabs. Optional
+   * and additive within v1 - without it, restore falls back to auto-tiling
+   * the window's `panelIds`.
+   */
+  arrangement: z.unknown().optional(),
 });
 export type WindowDocument = z.infer<typeof windowSchema>;
 

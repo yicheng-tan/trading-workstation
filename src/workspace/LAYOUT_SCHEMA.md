@@ -44,11 +44,12 @@ and localStorage records must keep loading after an upgrade.
 
 | Field | Type | Notes |
 |---|---|---|
-| `id` | `string` | Stable per-window id; a pop-out's id is also the `?popout=<id>` URL param and the `sessionStorage['popout:' + id]` key used to hand its panels to the new OS window (see `windowManager.ts`'s header comment for the full handoff contract). |
+| `id` | `string` | Stable per-window id; a pop-out's id is also the `?popout=<id>` URL param and the `localStorage['trading-workstation:popout:' + id]` key used to hand its panels to the new OS window (see `windowManager.ts`'s header comment and `popoutRegistry.ts` for the full handoff contract). |
 | `role` | `'main' \| 'popout'` | `'main'` is the dockview grid in the original window; `'popout'` windows are restored via `window.open`. |
-| `bounds` | `{ x, y, width, height }` (optional) | Screen-relative placement for a pop-out. Omitted → cascaded default placement. |
+| `bounds` | `{ x, y, width, height }` (optional) | Screen-relative placement for a pop-out (`screenX/screenY` + inner size, as reported by the pop-out itself every 2s). Omitted → cascaded default placement. |
 | `screenId` | `string` (optional) | An id from the Window Management API's `getScreenDetails()`, best-effort honoured when re-opening a pop-out on a specific monitor; silently ignored if that API/permission is unavailable. |
-| `panelIds` | `string[]` (min 1) | References into the layout's `panels` array. |
+| `panelIds` | `string[]` | References into the layout's `panels` array. May be empty (e.g. a main window whose every panel is popped out). |
+| `arrangement` | `unknown` (optional) | Opaque docking-grid state: for the main window, dockview's `api.toJSON()` (exact splits, sizes, tab groups, active tabs). Restore applies it with `api.fromJSON()`; if it's absent or can't be applied, the window's `panelIds` are auto-tiled instead. Additive within v1, so older v1 files without it still load. |
 
 ## `PanelDocument`
 
@@ -59,7 +60,7 @@ and localStorage records must keep loading after an upgrade.
 | `symbols` | `string[]` (min 1) | Primary symbol first; a watchlist panel's full tracked list. |
 | `linkGroup` | `string \| null` | Panels sharing a non-null `linkGroup` change symbol together (including across pop-out windows) via `LinkGroupContext`'s `BroadcastChannel`. `null` = unlinked. |
 | `settings` | `Record<string, unknown>` | Panel-kind-specific (e.g. depth levels, chart interval). Opaque to the workspace/layout layer. |
-| `position` | `{ x, y, width, height }` | Within its window's dockview grid. |
+| `position` | `{ x, y, width, height }` | Measured on-screen rect (CSS px) of the panel's group within its window's docking area at save time. Informational; the main window's exact grid comes from `arrangement`. |
 
 ## `LayoutExportEnvelope` (what `exportJson()` / a `.layout.json` file contains)
 

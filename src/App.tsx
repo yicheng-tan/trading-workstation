@@ -1,44 +1,38 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { DataHubProvider } from './app/DataHubContext';
 import { createDataHubClient } from './core/hub/createDataHubClient';
-import type { DataHubClient } from './core/hub/DataHubClient';
 import { PopoutShell } from './app/PopoutShell';
 import { WorkspaceShell } from './workspace/WorkspaceShell';
+import { readPopoutHandoff } from './workspace/popoutRegistry';
 import PerfOverlay from './perf/PerfOverlay';
 import ReplayFaultControls from './perf/replayFaultControls';
-import type { PanelInstanceConfig } from './panels/PanelProps';
 import './app/appShell.css';
 
-const POPOUT_SESSION_PREFIX = 'popout:';
+/** `?popout=<id>` marks a pop-out window; see the handoff contract in `src/workspace/windowManager.ts`. */
+const popoutId = new URLSearchParams(window.location.search).get('popout');
 
-/** Reads the `?popout=<id>` handoff per the contract documented in `src/workspace/windowManager.ts`. */
-function readPopoutHandoff(): { popoutId: string; panels: PanelInstanceConfig[] } | null {
-  const popoutId = new URLSearchParams(window.location.search).get('popout');
-  if (!popoutId) return null;
-  let panels: PanelInstanceConfig[] = [];
-  try {
-    panels = JSON.parse(sessionStorage.getItem(POPOUT_SESSION_PREFIX + popoutId) ?? '[]');
-  } catch {
-    panels = [];
-  }
-  return { popoutId, panels };
-}
+// One DataHubClient per page (main window or pop-out), each opening its own
+// port to the same SharedWorker hub. Owned by the page rather than a React
+// effect: StrictMode's mount/unmount/mount cycle would otherwise dispose it
+// right after mount, and effect cleanups never run when a window closes -
+// `pagehide` does, so the hub gets its `bye` and releases this window's
+// subscriptions.
+const client = createDataHubClient(popoutId ? 'popout' : 'main');
+window.addEventListener('pagehide', () => client.dispose(), { once: true });
+// A page restored from the back/forward cache comes back with a disposed client.
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) window.location.reload();
+});
+import.meta.hot?.dispose(() => client.dispose());
 
 export default function App() {
-  const popout = useMemo(readPopoutHandoff, []);
-  const windowRole = popout ? 'popout' : 'main';
-
-  // One DataHubClient per window (main or pop-out) - each opens its own
-  // SharedWorker port to the SAME shared hub, per the architecture decided
-  // up front. Created once per mount, disposed on unmount (page unload).
-  const [client] = useState<DataHubClient>(() => createDataHubClient(windowRole));
-  useEffect(() => () => client.dispose(), [client]);
+  const [initialPopoutPanels] = useState(() => (popoutId ? readPopoutHandoff(popoutId) : []));
 
   return (
     <DataHubProvider client={client}>
-      {popout ? <PopoutShell initialPanels={popout.panels} /> : <WorkspaceShell />}
+      {popoutId ? <PopoutShell windowId={popoutId} initialPanels={initialPopoutPanels} /> : <WorkspaceShell />}
       <PerfOverlay />
-      {!popout && <StressControlsToggle />}
+      {!popoutId && <StressControlsToggle />}
     </DataHubProvider>
   );
 }

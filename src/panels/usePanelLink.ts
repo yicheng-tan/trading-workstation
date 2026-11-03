@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLinkedSymbol } from '../workspace/LinkGroupContext';
 import type { PanelInstanceConfig } from './PanelProps';
 
@@ -14,16 +14,15 @@ export const LINK_GROUPS: ReadonlyArray<{ value: string | null; label: string }>
  * Glue between a panel's `PanelProps` contract and the cross-window
  * link-group bus (`useLinkedSymbol`).
  *
- * NOTE / known contract gap: `PanelProps` exposes `onSymbolChange` but has
- * no dedicated callback for changing a panel's `linkGroup`. The PRD asks
- * every panel chrome to offer a None/A/B/C/D link-group selector, so this
- * hook tracks the active link group as local component state (seeded from
- * `config.linkGroup`) and best-effort persists a change through
- * `onSettingsChange({ ...settings, linkGroup })`. That makes the selector
- * fully functional for live symbol-linking in the current session; whether
- * the workspace/layout layer reads `settings.linkGroup` back into
- * `config.linkGroup` on the next load is outside this panel package's
- * scope (see final report).
+ * `PanelProps` has no dedicated link-group callback, so a link-group change
+ * is persisted as `settings.linkGroup`; the workspace promotes it onto
+ * `config.linkGroup`.
+ *
+ * The displayed symbol and `config.symbols[0]` are kept in step both ways:
+ * a symbol that arrives through the link group (from another panel or
+ * window) is written back via `onSymbolChange` so saved layouts record what
+ * the panel actually shows, and an external config change (e.g. a layout
+ * reload reusing this panel's id) is adopted and broadcast to the group.
  */
 export function usePanelLink(
   config: PanelInstanceConfig,
@@ -36,16 +35,30 @@ export function usePanelLink(
   handleSymbolChange: (symbol: string) => void;
   handleLinkGroupChange: (group: string | null) => void;
 } {
+  const configSymbol = config.symbols[0] ?? fallbackSymbol;
   const [linkGroup, setLinkGroupState] = useState<string | null>(config.linkGroup);
-  const [symbol, setLinkedSymbol] = useLinkedSymbol(linkGroup, config.symbols[0] ?? fallbackSymbol);
+  const [symbol, setLinkedSymbol] = useLinkedSymbol(linkGroup, configSymbol);
 
-  const handleSymbolChange = useCallback(
-    (next: string) => {
-      setLinkedSymbol(next);
-      onSymbolChange(next);
-    },
-    [setLinkedSymbol, onSymbolChange],
-  );
+  const symbolRef = useRef(symbol);
+  symbolRef.current = symbol;
+  const configSymbolRef = useRef(configSymbol);
+  configSymbolRef.current = configSymbol;
+  const onSymbolChangeRef = useRef(onSymbolChange);
+  onSymbolChangeRef.current = onSymbolChange;
+
+  useEffect(() => {
+    if (configSymbol !== symbolRef.current) setLinkedSymbol(configSymbol);
+    // Only react to the config value itself changing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configSymbol]);
+
+  useEffect(() => {
+    if (symbol !== configSymbolRef.current) onSymbolChangeRef.current(symbol);
+  }, [symbol]);
+
+  useEffect(() => {
+    setLinkGroupState(config.linkGroup);
+  }, [config.linkGroup]);
 
   const handleLinkGroupChange = useCallback(
     (next: string | null) => {
@@ -55,5 +68,5 @@ export function usePanelLink(
     [config.settings, onSettingsChange],
   );
 
-  return { symbol, linkGroup, handleSymbolChange, handleLinkGroupChange };
+  return { symbol, linkGroup, handleSymbolChange: setLinkedSymbol, handleLinkGroupChange };
 }

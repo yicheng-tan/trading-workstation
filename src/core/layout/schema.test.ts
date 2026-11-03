@@ -59,6 +59,12 @@ describe('layout schema', () => {
     expect(() => parseLayoutDocument(doc)).not.toThrow();
   });
 
+  it('accepts an opaque docking arrangement on a window and preserves it', () => {
+    const doc = validDoc() as any;
+    doc.windows[0].arrangement = { grid: { root: { type: 'leaf' } }, panels: {} };
+    expect(parseLayoutDocument(doc).windows[0].arrangement).toEqual(doc.windows[0].arrangement);
+  });
+
   it('rejects a layout with zero windows', () => {
     const doc = validDoc() as any;
     doc.windows = [];

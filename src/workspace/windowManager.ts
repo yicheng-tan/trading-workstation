@@ -1,73 +1,26 @@
 import type { PanelInstanceConfig } from '../panels/PanelProps';
 import type { LayoutDocument, PanelDocument } from '../core/layout/schema';
+import { writePopoutHandoff } from './popoutRegistry';
 
 /**
- * ===========================================================================
- * POP-OUT HANDOFF CONTRACT  (read this before wiring `src/main.tsx`)
- * ===========================================================================
+ * POP-OUT HANDOFF CONTRACT
  *
- * Architecture: every window - the main window AND every pop-out - is the
- * SAME app bundle loaded at the SAME origin. A pop-out is just a second
- * `window.open()`'d copy of the app that independently opens its own
- * SharedWorker connection to the shared data hub. It needs no bridge back to
- * its opener for data; it only needs to know, on boot, "render just these
- * panels, standalone" instead of the full dockview workspace.
+ * Every window - the main window AND every pop-out - is the same app bundle
+ * at the same origin. A pop-out is a `window.open()`'d copy of the app that
+ * opens its own port to the shared SharedWorker data hub, so it needs no data
+ * bridge back to its opener; it only needs to know which panels to render.
  *
- * This module writes the handoff; `src/main.tsx` (owned by the integrator,
- * NOT this module) must read it. The contract:
- *
- * 1. URL:  `openPopoutWindow` opens `<origin+pathname>?popout=<windowId>`.
- *    On boot, check `new URLSearchParams(location.search).get('popout')`.
- *    If present, this window is a pop-out for that `windowId`.
- *
- * 2. Payload: the panel list for that window is written to
- *    `sessionStorage['popout:' + windowId]` as a JSON-serialized
- *    `PanelInstanceConfig[]` (see `src/panels/PanelProps.ts`), written
- *    synchronously by `openPopoutWindow` BEFORE `window.open` is called, so
- *    it's present as soon as the new window's document starts loading.
- *    Read it with:
- *      `JSON.parse(sessionStorage.getItem('popout:' + windowId) ?? '[]')`
- *    `sessionStorage` is per-tab/per-window in most browsers, but a window
- *    opened via `window.open(url, windowId, features)` with a *named*
- *    target that a browser reuses, or a window that inherits an existing
- *    session, can still see it; reading defensively (defaulting to `[]`
- *    and rendering an empty/"no panels" state) is recommended.
- *
- * 3. Render: when `popout` is present, `main.tsx` should render a MINIMAL
- *    shell - NOT `<WorkspaceShell />` - that:
- *      a. still wraps the panels in `<DataHubProvider client={...}>` (own
- *         SharedWorker connection, same as the main window) and
- *         `<LinkGroupProvider>` (so cross-window symbol linking keeps
- *         working via the shared BroadcastChannel), and
- *      b. maps each `PanelInstanceConfig` through
- *         `PANEL_COMPONENTS[config.kind]` (from `src/panels/registry.tsx`)
- *         exactly like `WorkspaceShell` does, rendering a simple stacked /
- *         single-panel layout (no dockview chrome needed for a pop-out that
- *         holds one or a few panels - though reusing `WorkspaceShell`'s
- *         dockview grid for a multi-panel pop-out is also fine if preferred).
- *      c. shows the "Panel type not available" placeholder for any `kind`
- *         missing from `PANEL_COMPONENTS` (same rule as the main workspace).
- *
- * 4. Title/branding: no special handling required; the pop-out is a normal
- *    page load of the same bundle, so `index.html`'s title/favicon apply
- *    unchanged.
- *
- * Example sketch for `main.tsx` (illustrative only - not written by this
- * module):
- *
- *   const popoutId = new URLSearchParams(location.search).get('popout');
- *   if (popoutId) {
- *     const panels: PanelInstanceConfig[] = JSON.parse(
- *       sessionStorage.getItem('popout:' + popoutId) ?? '[]',
- *     );
- *     render(<PopoutShell panels={panels} />); // integrator-authored, mirrors WorkspaceShell's panel-render loop
- *   } else {
- *     render(<WorkspaceShell />);
- *   }
- * ===========================================================================
+ * 1. URL: `<origin+pathname>?popout=<windowId>`. `App.tsx` checks for the
+ *    `popout` param on boot and renders `PopoutShell` instead of the
+ *    dockview workspace.
+ * 2. Payload: the window's `PanelInstanceConfig[]`, written to localStorage
+ *    via `writePopoutHandoff` BEFORE `window.open` is called and read with
+ *    `readPopoutHandoff` (both in `popoutRegistry.ts`). The pop-out rewrites
+ *    it whenever its panels change, so a reload restores its latest state.
+ * 3. Live state: pop-outs report panels + bounds back over the
+ *    `popoutRegistry` BroadcastChannel so the main window can include them
+ *    in a saved layout.
  */
-
-const POPOUT_SESSION_PREFIX = 'popout:';
 
 export interface PopoutPlacement {
   x: number;
@@ -188,8 +141,8 @@ function featuresString(placement: { left: number; top: number; width: number; h
 }
 
 /**
- * Opens a standalone pop-out window for `panels`, handing them off via
- * `sessionStorage` per the contract documented above. Returns the `Window`
+ * Opens a standalone pop-out window for `panels`, handing them off per the
+ * contract documented above. Returns the `Window`
  * handle, or `null` if the browser's popup blocker refused the call (the
  * caller decides how to surface that - see `openPopoutWindowsForLayout`).
  */
@@ -198,12 +151,7 @@ export function openPopoutWindow(
   panels: PanelInstanceConfig[],
   bounds?: PopoutPlacement,
 ): Window | null {
-  try {
-    sessionStorage.setItem(POPOUT_SESSION_PREFIX + windowId, JSON.stringify(panels));
-  } catch {
-    // sessionStorage unavailable (sandboxed/private mode) - the pop-out will
-    // boot with no panels per the contract's defensive read; best-effort only.
-  }
+  writePopoutHandoff(windowId, panels);
 
   const placement = resolvePlacement(bounds);
   const url = `${window.location.pathname}?popout=${encodeURIComponent(windowId)}`;

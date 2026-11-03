@@ -15,6 +15,7 @@ import {
 import 'dockview/dist/styles/dockview.css';
 
 import { PANEL_COMPONENTS, PANEL_TITLES, DEFAULT_WATCHLIST_SYMBOLS } from '../panels/registry';
+import { linkGroupColor } from '../panels/usePanelLink';
 import type { PanelInstanceConfig } from '../panels/PanelProps';
 import type { PanelKind, PanelDocument, LayoutDocument, WindowDocument } from '../core/layout/schema';
 import type { NewLayoutInput } from '../core/layout/LayoutStore';
@@ -25,10 +26,14 @@ import { openPopoutWindow, openPopoutWindowsForLayout } from './windowManager';
 import { createPopoutTracker, type PanelRect, type PopoutTracker } from './popoutRegistry';
 import { LinkGroupProvider } from './LinkGroupContext';
 import { LayoutPanel } from './LayoutPanel';
+import { loadSession, saveSession } from './sessionStore';
+import { resolveSymbol } from '../core/symbols/symbols';
+import { SYMBOL_DATALIST_ID, useSymbolSet } from '../panels/symbolDirectory';
 import './workspace.css';
 
 const PANEL_KINDS = Object.keys(PANEL_TITLES) as PanelKind[];
 const MAX_PANELS_PER_ROW = 4;
+const SESSION_SAVE_DEBOUNCE_MS = 500;
 const DEFAULT_PANEL_RECT: PanelRect = { x: 0, y: 0, width: 400, height: 300 };
 
 function genPanelId(): string {
@@ -115,12 +120,42 @@ function PanelUnavailable({ kind }: { kind: string }) {
   );
 }
 
-function PanelTab({ title, onPopOut, onClose }: { title: string; onPopOut: () => void; onClose: () => void }) {
+function PanelTab({
+  title,
+  linkGroup,
+  onDuplicate,
+  onPopOut,
+  onClose,
+}: {
+  title: string;
+  linkGroup: string | null;
+  onDuplicate: () => void;
+  onPopOut: () => void;
+  onClose: () => void;
+}) {
+  const groupColor = linkGroupColor(linkGroup);
   return (
     <span className="ws-tab__row">
+      {groupColor && (
+        <span className="ws-tab__group" style={{ background: groupColor }} title={`Link group ${linkGroup}`}>
+          {linkGroup}
+        </span>
+      )}
       <span className="ws-tab__title" title={title}>
         {title}
       </span>
+      <button
+        type="button"
+        className="ws-tab__btn"
+        title="Duplicate panel"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDuplicate();
+        }}
+      >
+        ⧉
+      </button>
       <button
         type="button"
         className="ws-tab__btn"
@@ -207,7 +242,11 @@ export function WorkspaceShell({ initialPanels }: WorkspaceShellProps = {}) {
   const [slots, setSlots] = useState<Slots>({});
   const [newKind, setNewKind] = useState<PanelKind>(PANEL_KINDS[0] ?? 'watchlist');
   const [newSymbol, setNewSymbol] = useState<string>(DEFAULT_WATCHLIST_SYMBOLS[0] ?? 'BTCUSDT');
+  const [newSymbolInvalid, setNewSymbolInvalid] = useState(false);
+  const knownSymbols = useSymbolSet();
   const [layoutPanelOpen, setLayoutPanelOpen] = useState(false);
+  const sessionRestoredRef = useRef(false);
+  const sessionSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pendingRestore, setPendingRestore] = useState<{ layout: LayoutDocument; blocked: number } | null>(null);
 
   panelsStateRef.current = panels;
@@ -244,10 +283,32 @@ export function WorkspaceShell({ initialPanels }: WorkspaceShellProps = {}) {
     apiRef.current?.getPanel(panelId)?.api.close();
   }
 
+  function duplicatePanel(panelId: string) {
+    const api = apiRef.current;
+    const source = panelsStateRef.current.find((p) => p.id === panelId);
+    if (!api || !source) return;
+    const copy: PanelInstanceConfig = { ...source, id: genPanelId(), symbols: [...source.symbols], settings: { ...source.settings } };
+    // Added to dockview directly (next to the original) rather than via the
+    // auto-tiling reconcile effect, which then finds it already present.
+    api.addPanel({
+      id: copy.id,
+      title: tabTitle(copy),
+      component: 'panel',
+      tabComponent: 'panelTab',
+      position: { referencePanel: panelId, direction: 'right' },
+    });
+    setPanels((prev) => [...prev, copy]);
+  }
+
   function updatePanelSymbol(panelId: string, symbol: string) {
     setPanels((prev) =>
       prev.map((p) => (p.id === panelId ? { ...p, symbols: [symbol, ...p.symbols.slice(1)] } : p)),
     );
+  }
+
+  function updatePanelSymbols(panelId: string, symbols: string[]) {
+    if (symbols.length === 0) return;
+    setPanels((prev) => prev.map((p) => (p.id === panelId ? { ...p, symbols } : p)));
   }
 
   function updatePanelSettings(panelId: string, settings: Record<string, unknown>) {
@@ -338,15 +399,53 @@ export function WorkspaceShell({ initialPanels }: WorkspaceShellProps = {}) {
     }
   }, [panels]);
 
-  // Auto-open the default layout on launch. Pop-outs need a user gesture, so
-  // most browsers block them here; the toolbar banner finishes with one click
-  // (PRD: "a few clicks to start the restore is acceptable").
+  // On launch, open the default layout if one is set, otherwise the
+  // autosaved last session. Pop-outs need a user gesture, so most browsers
+  // block them here; the toolbar banner finishes with one click (PRD: "a few
+  // clicks to start the restore is acceptable").
   useEffect(() => {
-    if (initialPanels && initialPanels.length > 0) return;
-    const defaultLayout = storeRef.current.getDefault();
-    if (!defaultLayout) return;
-    applyRestoredLayout(defaultLayout);
+    if (!initialPanels || initialPanels.length === 0) {
+      const startupLayout = storeRef.current.getDefault() ?? loadSession();
+      if (startupLayout) applyRestoredLayout(startupLayout);
+    }
+    sessionRestoredRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Autosave the main window (debounced) whenever panels or the dockview
+  // arrangement change, and immediately when the page is closed/reloaded.
+  // Skipped until the startup restore has run so it can't overwrite the
+  // stored session with the empty initial workspace.
+  function cancelSessionSave() {
+    if (sessionSaveTimerRef.current) clearTimeout(sessionSaveTimerRef.current);
+    sessionSaveTimerRef.current = null;
+  }
+  function saveSessionNow() {
+    cancelSessionSave();
+    if (sessionRestoredRef.current) saveSession(buildCurrentLayoutInput());
+  }
+  function scheduleSessionSave() {
+    if (!sessionRestoredRef.current) return;
+    cancelSessionSave();
+    sessionSaveTimerRef.current = setTimeout(saveSessionNow, SESSION_SAVE_DEBOUNCE_MS);
+  }
+  const sessionSaverRef = useRef({ schedule: scheduleSessionSave, flush: saveSessionNow, cancel: cancelSessionSave });
+  sessionSaverRef.current = { schedule: scheduleSessionSave, flush: saveSessionNow, cancel: cancelSessionSave };
+
+  useEffect(() => {
+    sessionSaverRef.current.schedule();
+  }, [panels]);
+
+  useEffect(() => {
+    const saver = sessionSaverRef;
+    const layoutSub = apiRef.current?.onDidLayoutChange(() => saver.current.schedule());
+    const flush = () => saver.current.flush();
+    window.addEventListener('pagehide', flush);
+    return () => {
+      layoutSub?.dispose();
+      window.removeEventListener('pagehide', flush);
+      saver.current.cancel();
+    };
   }, []);
 
   function applyRestoredLayout(layout: LayoutDocument) {
@@ -378,8 +477,19 @@ export function WorkspaceShell({ initialPanels }: WorkspaceShellProps = {}) {
 
   function handleAddPanel() {
     const kind = newKind;
-    const trimmedSymbol = newSymbol.trim().toUpperCase();
-    const symbols = kind === 'watchlist' ? [...DEFAULT_WATCHLIST_SYMBOLS] : [trimmedSymbol || DEFAULT_WATCHLIST_SYMBOLS[0]];
+    let symbols: string[];
+    if (kind === 'watchlist') {
+      symbols = [...DEFAULT_WATCHLIST_SYMBOLS];
+    } else {
+      const resolved = newSymbol.trim() ? resolveSymbol(newSymbol, knownSymbols) : DEFAULT_WATCHLIST_SYMBOLS[0];
+      if (!resolved) {
+        setNewSymbolInvalid(true);
+        return;
+      }
+      setNewSymbol(resolved);
+      symbols = [resolved];
+    }
+    setNewSymbolInvalid(false);
     setPanels((prev) => [...prev, { id: genPanelId(), kind, symbols, linkGroup: null, settings: {} }]);
   }
 
@@ -392,8 +502,10 @@ export function WorkspaceShell({ initialPanels }: WorkspaceShellProps = {}) {
     return { x: r.left - c.left, y: r.top - c.top, width: r.width, height: r.height };
   }
 
+  // Reads only refs, so it's safe to call from timers and event listeners
+  // created in an earlier render.
   function buildCurrentLayoutInput(): NewLayoutInput {
-    const mainDocs = panels.map((config) => toPanelDocument(config, mainPanelRect(config.id)));
+    const mainDocs = panelsStateRef.current.map((config) => toPanelDocument(config, mainPanelRect(config.id)));
     const windows: WindowDocument[] = [
       {
         id: 'main',
@@ -438,11 +550,22 @@ export function WorkspaceShell({ initialPanels }: WorkspaceShellProps = {}) {
               ))}
             </select>
             <input
-              className="ws-toolbar__input"
+              className={`ws-toolbar__input ${newSymbolInvalid ? 'ws-toolbar__input--invalid' : ''}`}
               value={newSymbol}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setNewSymbol(e.target.value)}
-              placeholder="Symbol, e.g. BTCUSDT"
+              list={SYMBOL_DATALIST_ID}
+              autoComplete="off"
+              spellCheck={false}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                setNewSymbol(e.target.value);
+                setNewSymbolInvalid(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleAddPanel();
+              }}
+              placeholder="Symbol, e.g. BTC or ETHUSDT"
               aria-label="Initial symbol"
+              aria-invalid={newSymbolInvalid}
+              title={newSymbolInvalid ? 'Unknown symbol - pick one from the list' : 'Press Enter to add the panel'}
               disabled={newKind === 'watchlist'}
             />
             <button type="button" className="ws-toolbar__btn ws-toolbar__btn--primary" onClick={handleAddPanel}>
@@ -458,6 +581,8 @@ export function WorkspaceShell({ initialPanels }: WorkspaceShellProps = {}) {
               browser — click to open
             </button>
           )}
+
+          <span className="ws-toolbar__source">Market data: Binance Spot public API</span>
 
           <button type="button" className="ws-toolbar__btn" onClick={() => setLayoutPanelOpen((v) => !v)}>
             Layouts
@@ -489,6 +614,7 @@ export function WorkspaceShell({ initialPanels }: WorkspaceShellProps = {}) {
                   <Component
                     config={config}
                     onSymbolChange={(symbol) => updatePanelSymbol(config.id, symbol)}
+                    onSymbolsChange={(symbols) => updatePanelSymbols(config.id, symbols)}
                     onSettingsChange={(settings) => updatePanelSettings(config.id, settings)}
                   />
                 ) : (
@@ -500,6 +626,8 @@ export function WorkspaceShell({ initialPanels }: WorkspaceShellProps = {}) {
               createPortal(
                 <PanelTab
                   title={tabTitle(config)}
+                  linkGroup={config.linkGroup}
+                  onDuplicate={() => duplicatePanel(config.id)}
                   onPopOut={() => popOutPanel(config.id)}
                   onClose={() => closePanel(config.id)}
                 />,

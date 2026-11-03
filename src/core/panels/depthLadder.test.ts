@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { groupLevelsByTick, withCumulative, computeMidPrice, displayTickSize, decimalPlaces } from './depthLadder';
+import {
+  groupLevelsByTick,
+  withCumulative,
+  computeMidPrice,
+  displayTickSize,
+  decimalPlaces,
+  groupingIncrement,
+  spreadBps,
+} from './depthLadder';
 import type { PriceLevel } from '../types';
 
 describe('groupLevelsByTick', () => {
@@ -64,6 +72,34 @@ describe('displayTickSize', () => {
     expect(decimalPlaces(displayTickSize(0.5))).toBe(4);
     expect(displayTickSize(2266)).toBe(0.5);
     expect(displayTickSize(77000)).toBe(1);
+  });
+});
+
+describe('groupingIncrement', () => {
+  it('scales the magnitude default and stays free of floating-point noise', () => {
+    expect(groupingIncrement(77000, 1)).toBe(1);
+    expect(groupingIncrement(77000, 100)).toBe(100);
+    expect(groupingIncrement(2266, 0.1)).toBe(0.05);
+    expect(groupingIncrement(1.25, 0.1)).toBe(0.0001);
+    expect(decimalPlaces(groupingIncrement(1.25, 0.1))).toBe(4);
+  });
+
+  it('never goes finer than the 1e-8 exchange minimum', () => {
+    expect(groupingIncrement(0.00000471, 0.1)).toBe(1e-8);
+    expect(groupingIncrement(0.00000471, 10)).toBe(1e-7);
+  });
+});
+
+describe('spreadBps', () => {
+  it('expresses the spread relative to mid', () => {
+    expect(spreadBps(1, 10_000)).toBeCloseTo(1, 9);
+    expect(spreadBps(0.01, 2267.1)).toBeCloseTo(0.0441, 4);
+  });
+
+  it('returns null without a spread or a positive mid', () => {
+    expect(spreadBps(null, 100)).toBeNull();
+    expect(spreadBps(1, null)).toBeNull();
+    expect(spreadBps(1, 0)).toBeNull();
   });
 });
 

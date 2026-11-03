@@ -16,7 +16,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 6px;
+  padding: 3px 6px 3px 8px;
   background: #f5f6f8;
   border-bottom: 1px solid #e2e5ea;
   flex: 0 0 auto;
@@ -30,7 +30,7 @@
 }
 
 .symbolInput {
-  width: 84px;
+  width: 100px;
   padding: 2px 6px;
   border: 1px solid #c7ccd4;
   border-radius: 4px;
@@ -45,6 +45,12 @@
   outline: none;
   border-color: #3b82f6;
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.symbolInputInvalid,
+.symbolInputInvalid:focus {
+  border-color: #dc2626;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.2);
 }
 
 .linkSelect {
@@ -127,16 +133,4 @@
   position: relative;
   overflow: hidden;
   background: #ffffff;
-}
-
-.footer {
-  flex: 0 0 auto;
-  padding: 2px 6px;
-  font-size: 10px;
-  color: #9aa1ad;
-  border-top: 1px solid #eef0f3;
-  background: #fafbfc;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }

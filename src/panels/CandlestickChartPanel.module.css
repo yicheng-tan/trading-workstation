@@ -1,17 +1,19 @@
 .wrapper {
   position: absolute;
   inset: 0;
-  display: flex;
-  flex-direction: column;
 }
 
+/* Overlaid on the chart rather than a row of its own, so the plot keeps the full panel height. */
 .toolbar {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  z-index: 3;
   display: flex;
   gap: 2px;
-  padding: 4px 6px;
-  border-bottom: 1px solid #eef0f3;
-  background: #fafbfc;
-  flex: 0 0 auto;
+  padding: 2px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.85);
 }
 
 .intervalButton,
@@ -19,9 +21,9 @@
   border: 1px solid #d7dbe1;
   background: #ffffff;
   color: #434a5c;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
   cursor: pointer;
 }
 
@@ -36,7 +38,6 @@
 }
 
 .chartArea {
-  flex: 1 1 auto;
-  min-height: 0;
-  min-width: 0;
+  position: absolute;
+  inset: 0;
 }

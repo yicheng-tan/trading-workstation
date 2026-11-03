@@ -13,5 +13,7 @@ export interface PanelProps {
   config: PanelInstanceConfig;
   /** Change the panel's primary symbol; propagates to its link group automatically via useLinkedSymbol. */
   onSymbolChange: (symbol: string) => void;
+  /** Replace the panel's whole `symbols` list (e.g. watchlist membership). Must stay non-empty per the layout schema. */
+  onSymbolsChange: (symbols: string[]) => void;
   onSettingsChange: (settings: Record<string, unknown>) => void;
 }

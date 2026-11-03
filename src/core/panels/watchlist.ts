@@ -18,7 +18,7 @@ export function applyMiniTicker(evt: MiniTickerEvent): WatchlistRow {
 export type WatchlistSortKey = 'symbol' | 'changePct' | 'quoteVolume';
 
 /** Returns a new, sorted array; never mutates the input. */
-export function sortWatchlist(rows: WatchlistRow[], by: WatchlistSortKey, dir: 'asc' | 'desc'): WatchlistRow[] {
+export function sortWatchlist<T extends WatchlistRow>(rows: T[], by: WatchlistSortKey, dir: 'asc' | 'desc'): T[] {
   const sign = dir === 'asc' ? 1 : -1;
   return [...rows].sort((a, b) => {
     const av = a[by];

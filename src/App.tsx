@@ -6,6 +6,7 @@ import { WorkspaceShell } from './workspace/WorkspaceShell';
 import { readPopoutHandoff } from './workspace/popoutRegistry';
 import PerfOverlay from './perf/PerfOverlay';
 import ReplayFaultControls from './perf/replayFaultControls';
+import { SymbolDatalist } from './panels/SymbolDatalist';
 import './app/appShell.css';
 
 /** `?popout=<id>` marks a pop-out window; see the handoff contract in `src/workspace/windowManager.ts`. */
@@ -31,6 +32,7 @@ export default function App() {
   return (
     <DataHubProvider client={client}>
       {popoutId ? <PopoutShell windowId={popoutId} initialPanels={initialPopoutPanels} /> : <WorkspaceShell />}
+      <SymbolDatalist />
       <PerfOverlay />
       {!popoutId && <StressControlsToggle />}
     </DataHubProvider>

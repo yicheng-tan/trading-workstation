@@ -625,6 +625,99 @@ async function main() {
       });
     }
 
+    // --- 8. Workspace QoL (runs on whatever the 30-panel step left open) ----
+    const pressKey = (target, key) => `(${target}.dispatchEvent(new KeyboardEvent('keydown', { key: '${key}', bubbles: true })), true)`;
+    const panelKey = (p) => `${p.title}|${p.symbol}|${p.group}`;
+
+    await step('workspace autosaves and is restored on reload when no default layout is set', async () => {
+      const before = await main.panels();
+      await main.eval(`(localStorage.removeItem('trading-workstation:layouts'), true)`);
+      await detachWorkers();
+      await main.navigate(appUrl);
+      const after = await main.waitFor(`(() => { const p = $panels(); return p.length === ${before.length} && p; })()`, {
+        label: `${before.length} panels restored from the autosaved session`,
+      });
+      const a = before.map(panelKey).sort().join(' ; ');
+      const b = after.map(panelKey).sort().join(' ; ');
+      if (a !== b) throw new Error(`restored session differs\n    before: ${a}\n    after:  ${b}`);
+      return `${after.length} panels restored`;
+    });
+
+    await step('symbol inputs expand shorthand and reject unknown symbols', async () => {
+      const known = await main.waitFor(`document.querySelectorAll('#tw-symbol-options option').length > 100 && document.querySelectorAll('#tw-symbol-options option').length`, {
+        label: 'symbol directory loaded',
+      });
+      const toolbarInput = `document.querySelector('.ws-toolbar__input')`;
+      const count = (await main.panels()).length;
+      await main.eval(`($setValue(document.querySelector('.ws-toolbar__select'), 'depthLadder'), true)`);
+      await sleep(50);
+      await main.eval(`($setValue(${toolbarInput}, 'NOTACOIN'), true)`);
+      await main.eval(pressKey(toolbarInput, 'Enter'));
+      await sleep(200);
+      if (!(await main.eval(`${toolbarInput}.getAttribute('aria-invalid') === 'true' && $panels().length === ${count}`))) {
+        throw new Error('toolbar accepted an unknown symbol');
+      }
+      await main.eval(`($setValue(${toolbarInput}, 'ltc'), true)`);
+      await main.eval(pressKey(toolbarInput, 'Enter'));
+      await main.waitFor(`$panels().some((p) => p.title === 'Order Book' && p.symbol === 'LTCUSDT' && p.status === 'Live')`, {
+        label: '"ltc" added an Order Book for LTCUSDT that goes Live',
+      });
+
+      const chartInput = `$header('Chart').querySelector('input')`;
+      const original = await main.eval(`${chartInput}.value`);
+      await main.eval(`($setValue(${chartInput}, 'NOTACOIN'), true)`);
+      await main.eval(pressKey(chartInput, 'Enter'));
+      await sleep(200);
+      if (!(await main.eval(`${chartInput}.getAttribute('aria-invalid') === 'true'`))) throw new Error('panel header accepted an unknown symbol');
+      await main.eval(pressKey(chartInput, 'Escape'));
+      await sleep(200);
+      const reverted = await main.eval(`${chartInput}.value`);
+      if (reverted !== original) throw new Error(`Escape did not revert the header: ${reverted} (expected ${original})`);
+      return `${known} known symbols; "ltc" -> LTCUSDT; NOTACOIN rejected in toolbar and header`;
+    });
+
+    await step('duplicate panel opens a live copy', async () => {
+      const before = await main.panels();
+      const source = before.find((p) => p.title === 'Time & Sales');
+      await main.eval(`([...document.querySelectorAll('button[title="Duplicate panel"]')]
+        .find((b) => b.closest('.ws-tab').textContent.includes('Time & Sales · ${source.symbol}')).click(), true)`);
+      await main.waitFor(
+        `(() => { const p = $panels(); return p.length === ${before.length + 1} && p.filter((x) => x.title === 'Time & Sales' && x.symbol === '${source.symbol}' && x.status === 'Live').length >= 2; })()`,
+        { label: `second live Time & Sales for ${source.symbol}` },
+      );
+      return `Time & Sales ${source.symbol} duplicated`;
+    });
+
+    await step('watchlist symbols can be added and removed, and prices flash on change', async () => {
+      const addInput = `document.querySelector('input[aria-label="Add symbol to watchlist"]')`;
+      const row = (symbol) => `[...document.querySelectorAll('tr')].find((tr) => tr.firstElementChild?.textContent === '${symbol}')`;
+      await main.eval(`($setValue(${addInput}, 'ltc'), true)`);
+      await main.eval(`(${addInput}.closest('form').requestSubmit(), true)`);
+      await main.waitFor(`${row('LTCUSDT')}?.children.length === 7`, { label: 'LTCUSDT row with live data' });
+      await main.eval(`(${row('LTCUSDT')}.querySelector('button[aria-label="Remove LTCUSDT"]').click(), true)`);
+      await main.waitFor(`!${row('LTCUSDT')}`, { label: 'LTCUSDT row removed' });
+      await main.waitFor(`!!document.querySelector('td[class*="flash"]')`, { label: 'a watchlist price flashed', timeoutMs: 30_000 });
+      return 'added LTCUSDT, removed it, saw a price flash';
+    });
+
+    await step('link groups are colour-coded on tabs, and order book grouping is adjustable and saved', async () => {
+      const header = `$header('Order Book')`;
+      const symbol = await main.eval(`${header}.querySelector('input').value`);
+      await main.eval(`($setValue(${header}.querySelector('select[aria-label="Link group"]'), 'C'), true)`);
+      await main.waitFor(
+        `[...document.querySelectorAll('.ws-tab')].some((t) => t.textContent.includes('Order Book · ${symbol}') && t.querySelector('.ws-tab__group')?.textContent === 'C')`,
+        { label: `Order Book · ${symbol} tab shows group C` },
+      );
+      const grouping = `${header}.parentElement.querySelector('select[aria-label="Price grouping"]')`;
+      const labels = await main.eval(`[...${grouping}.options].map((o) => o.textContent).join(' / ')`);
+      await main.eval(`($setValue(${grouping}, '10'), true)`);
+      await main.waitFor(`(localStorage.getItem('trading-workstation:session') ?? '').includes('"grouping":10')`, {
+        label: 'grouping saved in the autosaved session',
+      });
+      await main.screenshot('4-qol');
+      return `${symbol}: group C badge on tab; grouping options ${labels}; x10 saved`;
+    });
+
     await step('no page or worker exceptions', async () => {
       if (problems.length > 0) throw new Error(problems.slice(0, 10).join('\n    '));
       return null;

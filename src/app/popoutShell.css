@@ -8,8 +8,15 @@
 .popout-toolbar {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
   padding: 4px 6px 0;
   background: var(--color-bg);
+}
+
+.popout-toolbar__source {
+  font-size: 11px;
+  color: var(--color-text-muted);
 }
 
 .popout-toolbar__btn {

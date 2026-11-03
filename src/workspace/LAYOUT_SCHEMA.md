@@ -59,7 +59,7 @@ and localStorage records must keep loading after an upgrade.
 | `kind` | `'depthLadder' \| 'tradeTape' \| 'candlestick' \| 'watchlist'` | Maps through `PANEL_COMPONENTS` in `src/panels/registry.tsx`. An unrecognized value fails validation outright (zod `enum`); a recognized-but-not-yet-implemented kind renders a "Panel type not available" placeholder at runtime instead of crashing. |
 | `symbols` | `string[]` (min 1) | Primary symbol first; a watchlist panel's full tracked list. |
 | `linkGroup` | `string \| null` | Panels sharing a non-null `linkGroup` change symbol together (including across pop-out windows) via `LinkGroupContext`'s `BroadcastChannel`. `null` = unlinked. |
-| `settings` | `Record<string, unknown>` | Panel-kind-specific (e.g. depth levels, chart interval). Opaque to the workspace/layout layer. |
+| `settings` | `Record<string, unknown>` | Panel-kind-specific, opaque to the workspace/layout layer. Current keys: `interval` (chart, `'1m'`…`'1d'`), `grouping` (order book, `0.1 \| 1 \| 10 \| 100` × the default price bucket), `selectedSymbol` (watchlist's link-group symbol; its watched list is `symbols`), `linkGroup` (mirror of the top-level field). |
 | `position` | `{ x, y, width, height }` | Measured on-screen rect (CSS px) of the panel's group within its window's docking area at save time. Informational; the main window's exact grid comes from `arrangement`. |
 
 ## `LayoutExportEnvelope` (what `exportJson()` / a `.layout.json` file contains)

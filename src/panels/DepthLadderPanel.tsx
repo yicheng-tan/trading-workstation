@@ -5,14 +5,19 @@ import PanelChrome from './PanelChrome';
 import { usePanelLink } from './usePanelLink';
 import { deriveOrderBookStatus, type PanelStatus } from './panelStatus';
 import {
+  GROUPING_FACTORS,
   computeMidPrice,
   decimalPlaces,
   displayTickSize,
   groupLevelsByTick,
+  groupingIncrement,
+  spreadBps,
   withCumulative,
   type LevelWithCumulative,
 } from '../core/panels/depthLadder';
 import { COLORS } from './colors';
+import { formatQty, priceDecimals } from './priceFormat';
+import styles from './DepthLadderPanel.module.css';
 import type { ConnectionStatus } from '../core/hub/protocol';
 import type { OrderBookSnapshotView, OrderBookStatus } from '../core/types';
 
@@ -55,6 +60,17 @@ export default function DepthLadderPanel({ config, onSymbolChange, onSettingsCha
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sizeRef = useRef({ width: 0, height: 0 });
 
+  const savedFactor = Number(config.settings.grouping);
+  const [groupingFactor, setGroupingFactor] = useState<number>(
+    (GROUPING_FACTORS as readonly number[]).includes(savedFactor) ? savedFactor : 1,
+  );
+  const groupingFactorRef = useRef(groupingFactor);
+  groupingFactorRef.current = groupingFactor;
+  // Only the price's magnitude feeds the grouping labels, so this re-renders
+  // when a symbol change crosses a magnitude boundary, not on every tick.
+  const [magnitudePrice, setMagnitudePrice] = useState<number | null>(null);
+  const magnitudeRef = useRef<number | null>(null);
+
   const bookRef = useRef<OrderBookSnapshotView | null>(null);
   const connectionRef = useRef<ConnectionStatus>(hub.getConnectionStatus());
   const bookStatusRef = useRef<OrderBookStatus | null>(null);
@@ -93,8 +109,21 @@ export default function DepthLadderPanel({ config, onSymbolChange, onSettingsCha
       bookRef.current = book;
       bookStatusRef.current = book.status;
       recomputeStatus();
+      const ref = book.bestBid?.price ?? book.bestAsk?.price;
+      if (ref !== undefined) {
+        const tick = displayTickSize(ref);
+        if (tick !== magnitudeRef.current) {
+          magnitudeRef.current = tick;
+          setMagnitudePrice(ref);
+        }
+      }
     });
   }, [hub, symbol, recomputeStatus]);
+
+  const handleGroupingChange = (factor: number) => {
+    setGroupingFactor(factor);
+    onSettingsChange({ ...config.settings, grouping: factor });
+  };
 
   // Track container size via ResizeObserver; size the canvas backing store
   // at `size * devicePixelRatio` so strokes/text stay crisp on HiDPI screens.
@@ -134,7 +163,7 @@ export default function DepthLadderPanel({ config, onSymbolChange, onSettingsCha
       const ctx = canvas?.getContext('2d');
       const { width, height } = sizeRef.current;
       if (ctx && width > 0 && height > 0) {
-        renderLadder(ctx, width, height, bookRef.current);
+        renderLadder(ctx, width, height, bookRef.current, groupingFactorRef.current);
       }
       raf = requestAnimationFrame(draw);
     };
@@ -154,6 +183,19 @@ export default function DepthLadderPanel({ config, onSymbolChange, onSettingsCha
       <div ref={containerRef} style={{ position: 'absolute', inset: 0 }}>
         <canvas ref={canvasRef} style={{ display: 'block' }} />
       </div>
+      <select
+        className={styles.grouping}
+        value={groupingFactor}
+        onChange={(e) => handleGroupingChange(Number(e.target.value))}
+        aria-label="Price grouping"
+        title="Price grouping"
+      >
+        {GROUPING_FACTORS.map((factor) => (
+          <option key={factor} value={factor}>
+            {magnitudePrice === null ? `×${factor}` : formatIncrement(groupingIncrement(magnitudePrice, factor))}
+          </option>
+        ))}
+      </select>
     </PanelChrome>
   );
 }
@@ -162,7 +204,24 @@ function formatPrice(value: number, decimals: number): string {
   return value.toFixed(Math.min(decimals, 8));
 }
 
-function renderLadder(ctx: CanvasRenderingContext2D, width: number, height: number, book: OrderBookSnapshotView | null) {
+function formatIncrement(increment: number): string {
+  return increment.toFixed(Math.min(8, decimalPlaces(increment)));
+}
+
+function formatBps(bps: number): string {
+  return bps < 1 ? bps.toPrecision(2) : bps.toFixed(1);
+}
+
+/** Space the HTML grouping select occupies at the right end of the spread row. */
+const GROUPING_SELECT_WIDTH = 72;
+
+function renderLadder(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  book: OrderBookSnapshotView | null,
+  groupingFactor: number,
+) {
   ctx.clearRect(0, 0, width, height);
   ctx.fillStyle = COLORS.panelBg;
   ctx.fillRect(0, 0, width, height);
@@ -177,7 +236,7 @@ function renderLadder(ctx: CanvasRenderingContext2D, width: number, height: numb
   }
 
   const refPrice = book.bestBid?.price ?? book.bestAsk?.price ?? book.bids[0]?.price ?? book.asks[0]?.price ?? 100;
-  const tickSize = displayTickSize(refPrice);
+  const tickSize = groupingIncrement(refPrice, groupingFactor);
   const decimals = decimalPlaces(tickSize);
 
   const sideHeight = Math.max(0, height - MID_ROW_HEIGHT);
@@ -216,15 +275,25 @@ function renderLadder(ctx: CanvasRenderingContext2D, width: number, height: numb
   ctx.lineTo(width, sideHeight / 2 + MID_ROW_HEIGHT);
   ctx.stroke();
 
+  // Mid and spread use the instrument's own precision, not the grouping's:
+  // a 0.01 spread must not round to "0.0" on a 0.5-grouped ladder.
   ctx.fillStyle = COLORS.textPrimary;
-  ctx.textAlign = 'center';
+  ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
   ctx.font = '600 11px sans-serif';
-  const label =
-    mid !== null
-      ? `Mid ${formatPrice(mid, decimals)}   Spread ${book.spread !== null ? formatPrice(book.spread, decimals) : '—'}`
-      : 'Mid —';
-  ctx.fillText(label, width / 2, sideHeight / 2 + MID_ROW_HEIGHT / 2);
+  const exact = mid !== null ? priceDecimals(mid) : 2;
+  const bps = spreadBps(book.spread, mid);
+  const midText = mid !== null ? formatPrice(mid, exact) : '—';
+  const spreadText = book.spread !== null ? formatPrice(book.spread, exact) : '—';
+  const bpsText = bps !== null ? ` (${formatBps(bps)} bps)` : '';
+  const available = width - GROUPING_SELECT_WIDTH - 12;
+  const candidates = [
+    `Mid ${midText}   Spread ${spreadText}${bpsText}`,
+    `${midText}  ·  ${spreadText}${bpsText}`,
+    `${midText}  ·  ${spreadText}`,
+  ];
+  const label = candidates.find((c) => ctx.measureText(c).width <= available) ?? candidates[candidates.length - 1];
+  ctx.fillText(label, 6, sideHeight / 2 + MID_ROW_HEIGHT / 2);
 }
 
 function drawLevelRow(
@@ -253,5 +322,5 @@ function drawLevelRow(
 
   ctx.fillStyle = COLORS.textPrimary;
   ctx.textAlign = 'right';
-  ctx.fillText(level.qty.toFixed(4), width - 6, y + ROW_HEIGHT / 2);
+  ctx.fillText(formatQty(level.qty), width - 6, y + ROW_HEIGHT / 2);
 }

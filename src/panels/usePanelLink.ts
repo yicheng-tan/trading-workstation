@@ -2,13 +2,19 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useLinkedSymbol } from '../workspace/LinkGroupContext';
 import type { PanelInstanceConfig } from './PanelProps';
 
-export const LINK_GROUPS: ReadonlyArray<{ value: string | null; label: string }> = [
-  { value: null, label: 'None' },
-  { value: 'A', label: 'Group A' },
-  { value: 'B', label: 'Group B' },
-  { value: 'C', label: 'Group C' },
-  { value: 'D', label: 'Group D' },
+// Colours avoid red/green/amber, which already mean sell/buy/stale.
+export const LINK_GROUPS: ReadonlyArray<{ value: string | null; label: string; color: string | null }> = [
+  { value: null, label: 'None', color: null },
+  { value: 'A', label: 'Group A', color: '#2563eb' },
+  { value: 'B', label: 'Group B', color: '#7c3aed' },
+  { value: 'C', label: 'Group C', color: '#0d9488' },
+  { value: 'D', label: 'Group D', color: '#db2777' },
 ];
+
+/** Accent colour identifying a link group across tabs, panel headers and windows; null when unlinked. */
+export function linkGroupColor(group: string | null): string | null {
+  return LINK_GROUPS.find((g) => g.value === group)?.color ?? null;
+}
 
 /**
  * Glue between a panel's `PanelProps` contract and the cross-window

@@ -40,6 +40,20 @@ export function displayTickSize(price: number): number {
   return Math.max(1e-8, 10 ** (Math.floor(Math.log10(price)) - 3));
 }
 
+/** Ladder grouping choices, as multiples of the magnitude default (`displayTickSize`). Stored per panel, so they carry across symbol changes. */
+export const GROUPING_FACTORS = [0.1, 1, 10, 100] as const;
+
+/** Bucket size for `factor` × the default at this price; never finer than Binance's 1e-8 tick, and free of FP noise like 0.00010000000000000002. */
+export function groupingIncrement(price: number, factor: number): number {
+  return Math.max(1e-8, Number((displayTickSize(price) * factor).toPrecision(6)));
+}
+
+/** Spread as basis points of mid, or null when either is unknown. */
+export function spreadBps(spread: number | null, mid: number | null): number | null {
+  if (spread === null || mid === null || mid <= 0) return null;
+  return (spread / mid) * 10_000;
+}
+
 export function decimalPlaces(n: number): number {
   const s = n.toString();
   if (s.includes('e-')) {

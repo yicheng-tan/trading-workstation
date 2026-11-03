@@ -5,7 +5,7 @@ import PanelChrome from './PanelChrome';
 import { usePanelLink } from './usePanelLink';
 import { deriveStreamStatus, usePeriodicCheck, type PanelStatus } from './panelStatus';
 import { COLORS } from './colors';
-import { priceDecimals } from './priceFormat';
+import { formatQty, priceDecimals } from './priceFormat';
 import type { ConnectionStatus } from '../core/hub/protocol';
 import type { TradeTapeEntry } from '../core/types';
 
@@ -182,7 +182,7 @@ function renderTape(ctx: CanvasRenderingContext2D, width: number, height: number
 
     ctx.fillStyle = COLORS.textPrimary;
     ctx.textAlign = showTime ? 'center' : 'right';
-    ctx.fillText(entry.qty.toFixed(4), showTime ? width / 2 : width - 6, y + ROW_HEIGHT / 2);
+    ctx.fillText(formatQty(entry.qty), showTime ? width / 2 : width - 6, y + ROW_HEIGHT / 2);
 
     if (showTime) {
       ctx.fillStyle = COLORS.textSecondary;

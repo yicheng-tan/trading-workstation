@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { LinkGroupProvider } from '../workspace/LinkGroupContext';
 import { createPopoutReporter, type PanelRect, type PopoutReporter } from '../workspace/popoutRegistry';
 import { PANEL_COMPONENTS, PANEL_TITLES } from '../panels/registry';
+import { linkGroupColor } from '../panels/usePanelLink';
 import type { PanelInstanceConfig } from '../panels/PanelProps';
 import './popoutShell.css';
 
@@ -52,6 +53,11 @@ export function PopoutShell({ windowId, initialPanels }: { windowId: string; ini
     setPanels((prev) => prev.map((p) => (p.id === panelId ? { ...p, symbols: [symbol, ...p.symbols.slice(1)] } : p)));
   }
 
+  function updateSymbols(panelId: string, symbols: string[]) {
+    if (symbols.length === 0) return;
+    setPanels((prev) => prev.map((p) => (p.id === panelId ? { ...p, symbols } : p)));
+  }
+
   function updateSettings(panelId: string, settings: Record<string, unknown>) {
     // Same promotion as WorkspaceShell.updatePanelSettings.
     const linkGroup = (settings as { linkGroup?: string | null }).linkGroup;
@@ -68,6 +74,7 @@ export function PopoutShell({ windowId, initialPanels }: { windowId: string; ini
     <LinkGroupProvider>
       <div className="popout-root">
         <header className="popout-toolbar">
+          <span className="popout-toolbar__source">Market data: Binance Spot public API</span>
           <button
             type="button"
             className="popout-toolbar__btn"
@@ -84,11 +91,13 @@ export function PopoutShell({ windowId, initialPanels }: { windowId: string; ini
           ) : (
             panels.map((config) => {
               const Component = PANEL_COMPONENTS[config.kind];
+              const groupColor = linkGroupColor(config.linkGroup);
               return (
                 <div
                   className="popout-shell__panel"
                   key={config.id}
                   aria-label={PANEL_TITLES[config.kind]}
+                  style={groupColor ? { borderTop: `3px solid ${groupColor}` } : undefined}
                   ref={(el) => {
                     if (el) panelElsRef.current.set(config.id, el);
                     else panelElsRef.current.delete(config.id);
@@ -98,6 +107,7 @@ export function PopoutShell({ windowId, initialPanels }: { windowId: string; ini
                     <Component
                       config={config}
                       onSymbolChange={(symbol) => updateSymbol(config.id, symbol)}
+                      onSymbolsChange={(symbols) => updateSymbols(config.id, symbols)}
                       onSettingsChange={(settings) => updateSettings(config.id, settings)}
                     />
                   ) : (

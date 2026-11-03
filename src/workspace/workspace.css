@@ -54,6 +54,11 @@
   width: 140px;
 }
 
+.ws-toolbar__input--invalid {
+  border-color: var(--color-sell, #c21e34);
+  box-shadow: 0 0 0 2px rgba(194, 30, 52, 0.15);
+}
+
 .ws-toolbar__input:disabled {
   background: var(--color-surface-alt, #f0f1f4);
   color: var(--color-text-muted, #6b7280);
@@ -130,6 +135,17 @@
   font-size: 12px;
 }
 
+/* The dock tab already names the panel; pop-outs (no tabs) keep the header title. */
+.ws-panel-content [data-panel-title] {
+  display: none;
+}
+
+.ws-toolbar__source {
+  font-size: 11px;
+  color: var(--color-text-muted, #6b7280);
+  white-space: nowrap;
+}
+
 .ws-panel-unavailable {
   display: flex;
   flex-direction: column;
@@ -157,6 +173,18 @@
   gap: 4px;
   padding: 0 6px;
   max-width: 220px;
+}
+
+.ws-tab__group {
+  flex: 0 0 auto;
+  min-width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
 }
 
 .ws-tab__title {

@@ -36,6 +36,21 @@ describe('ReplayEngine', () => {
     expect(timers.setTimeoutFn.mock.calls[0][1]).toBe(0);
   });
 
+  it('calls onEnd exactly once after the last event is delivered', () => {
+    const timers = fakeTimers();
+    const onEvent = vi.fn();
+    const onEnd = vi.fn();
+    const engine = new ReplayEngine(events, onEvent, { setTimeoutFn: timers.setTimeoutFn, clearTimeoutFn: timers.clearTimeoutFn, onEnd });
+    engine.start();
+    timers.fire(1);
+    timers.fire(2);
+    expect(onEnd).not.toHaveBeenCalled();
+    timers.fire(3);
+    expect(onEvent).toHaveBeenCalledTimes(3);
+    expect(onEnd).toHaveBeenCalledTimes(1);
+    expect(engine.isPlaying).toBe(false);
+  });
+
   it('emits events in order as scheduled timers fire, scheduling the next with the correct relative delay', () => {
     const timers = fakeTimers();
     const onEvent = vi.fn();

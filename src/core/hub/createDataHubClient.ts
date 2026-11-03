@@ -64,6 +64,7 @@ export function createDataHubClient(windowRole: 'main' | 'popout' = 'main'): Dat
       case 'trades':
         return `trades:${msg.symbol}`;
       case 'candle':
+      case 'candleHistory':
         return `candle:${msg.symbol}:${msg.interval}`;
       case 'watchlist':
         return 'watchlist';
@@ -111,6 +112,13 @@ export function createDataHubClient(windowRole: 'main' | 'popout' = 'main'): Dat
       return;
     }
 
+    if (msg.type === 'candleHistory') {
+      // Outside the ack-gated path (see CandleHistoryMsg) - deliver, never ack.
+      const bucket = callbacksByStreamKey.get(`candle:${msg.symbol}:${msg.interval}`);
+      if (bucket) for (const cb of bucket.values()) cb(msg);
+      return;
+    }
+
     // msg is now OrderBookUpdateMsg | TradesUpdateMsg | CandleUpdateMsg | WatchlistUpdateMsg - all carry `seq`.
     const streamKey = streamKeyForIncoming(msg);
     const bucket = streamKey ? callbacksByStreamKey.get(streamKey) : undefined;
@@ -142,9 +150,15 @@ export function createDataHubClient(windowRole: 'main' | 'popout' = 'main'): Dat
       });
     },
 
-    subscribeCandles(symbol: Symbol, interval: KlineInterval, onUpdate: (candle: Candle) => void): Unsubscribe {
+    subscribeCandles(
+      symbol: Symbol,
+      interval: KlineInterval,
+      onUpdate: (candle: Candle) => void,
+      onHistory?: (candles: Candle[]) => void,
+    ): Unsubscribe {
       return registerSubscription({ kind: 'kline', symbol, interval }, (msg) => {
         if (msg.type === 'candle') onUpdate(msg.candle);
+        else if (msg.type === 'candleHistory') onHistory?.(msg.candles);
       });
     },
 

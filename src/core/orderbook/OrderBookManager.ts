@@ -44,6 +44,12 @@ export class OrderBookManager {
   private bids = new Map<number, number>(); // price -> qty
   private asks = new Map<number, number>(); // price -> qty
   private buffer: DepthDiffEvent[] = [];
+  /**
+   * True right after a snapshot that had no buffered diff to replay: the next
+   * diff is the first one applied on top of the snapshot, so (per Binance) it
+   * only has to straddle `lastUpdateId + 1`, not start exactly there.
+   */
+  private awaitingFirstDiff = false;
 
   constructor(public readonly symbol: string) {}
 
@@ -65,7 +71,9 @@ export class OrderBookManager {
       return;
     }
 
-    if (evt.U !== this.lastUpdateId + 1) {
+    const contiguous = this.awaitingFirstDiff ? evt.U <= this.lastUpdateId + 1 : evt.U === this.lastUpdateId + 1;
+    this.awaitingFirstDiff = false;
+    if (!contiguous) {
       // Gap detected: do not touch book state, just flag for resync and
       // start buffering (this event included) for the eventual replay.
       this._status = 'stale';
@@ -90,10 +98,12 @@ export class OrderBookManager {
 
     const remaining = this.buffer.filter((d) => d.u > this.lastUpdateId);
     this.buffer = [];
+    this.awaitingFirstDiff = false;
 
     if (remaining.length === 0) {
       this._status = 'live';
       this._needsResync = false;
+      this.awaitingFirstDiff = true;
       return;
     }
 

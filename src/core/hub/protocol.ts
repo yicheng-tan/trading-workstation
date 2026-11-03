@@ -110,6 +110,19 @@ export interface CandleUpdateMsg {
   candle: Candle;
 }
 
+/**
+ * Recent candle history for one (symbol, interval), oldest first. Sent once
+ * per subscription outside the ack-gated path (no `seq`, never acked): the
+ * gate is latest-state-wins, so a live candle pushed right after would
+ * otherwise replace the history before it was delivered.
+ */
+export interface CandleHistoryMsg {
+  type: 'candleHistory';
+  symbol: string;
+  interval: KlineInterval;
+  candles: Candle[];
+}
+
 export interface WatchlistUpdateMsg {
   type: 'watchlist';
   seq: number;
@@ -127,6 +140,7 @@ export type HubToClientMsg =
   | OrderBookUpdateMsg
   | TradesUpdateMsg
   | CandleUpdateMsg
+  | CandleHistoryMsg
   | WatchlistUpdateMsg
   | HubErrorMsg;
 

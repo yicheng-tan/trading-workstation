@@ -24,10 +24,12 @@ export interface DataHubClient {
 
   subscribeOrderBook(symbol: Symbol, onUpdate: (book: OrderBookSnapshotView) => void): () => void;
   subscribeTrades(symbol: Symbol, onUpdate: (trades: TradeTapeEntry[]) => void): () => void;
+  /** `onHistory` receives recent candles (oldest first) once per subscription, before or between live updates. */
   subscribeCandles(
     symbol: Symbol,
     interval: KlineInterval,
     onUpdate: (candle: Candle) => void,
+    onHistory?: (candles: Candle[]) => void,
   ): () => void;
   /** Single shared `!miniTicker@arr` stream, filtered/sorted client-side. */
   subscribeWatchlist(onUpdate: (rows: WatchlistRow[]) => void): () => void;

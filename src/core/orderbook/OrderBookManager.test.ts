@@ -37,6 +37,26 @@ describe('OrderBookManager', () => {
     expect(view.bestAsk).toEqual({ price: 101, qty: 2.0 });
   });
 
+  it('accepts a first live diff that straddles lastUpdateId + 1 when the snapshot arrived before any diff', () => {
+    const m = new OrderBookManager('BTCUSDT');
+    m.applySnapshot(snapshot(1000, [['100.00', '1.5']], [['101.00', '2.0']]));
+    m.applyDiff(diff(995, 1005, [['100.00', '3.0']]));
+    expect(m.status).toBe('live');
+    expect(m.needsResync()).toBe(false);
+    expect(m.getView().bestBid).toEqual({ price: 100, qty: 3.0 });
+    // Only the first diff gets the straddle allowance; later ones must be contiguous.
+    m.applyDiff(diff(1003, 1008));
+    expect(m.status).toBe('stale');
+  });
+
+  it('still flags a gap when the first live diff after an empty-buffer snapshot starts past lastUpdateId + 1', () => {
+    const m = new OrderBookManager('BTCUSDT');
+    m.applySnapshot(snapshot(1000, [['100.00', '1.5']], [['101.00', '2.0']]));
+    m.applyDiff(diff(1002, 1005));
+    expect(m.status).toBe('stale');
+    expect(m.needsResync()).toBe(true);
+  });
+
   it('discards buffered diffs older than the snapshot and applies the straddling + contiguous ones', () => {
     const m = new OrderBookManager('BTCUSDT');
     // stale, fully before snapshot -> discarded

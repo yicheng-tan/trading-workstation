@@ -9,6 +9,8 @@ export interface ReplayEngineOptions {
   setTimeoutFn?: (cb: () => void, ms: number) => unknown;
   clearTimeoutFn?: (handle: unknown) => void;
   now?: () => number;
+  /** Called once after the last event has been delivered. */
+  onEnd?: () => void;
 }
 
 /**
@@ -21,6 +23,7 @@ export class ReplayEngine<T = unknown> {
   private readonly setTimeoutFn: (cb: () => void, ms: number) => unknown;
   private readonly clearTimeoutFn: (handle: unknown) => void;
   private readonly nowFn: () => number;
+  private readonly onEnd: (() => void) | undefined;
 
   private speed = 1;
   private _nextIndex = 0;
@@ -38,6 +41,7 @@ export class ReplayEngine<T = unknown> {
     this.setTimeoutFn = opts?.setTimeoutFn ?? ((cb, ms) => setTimeout(cb, ms));
     this.clearTimeoutFn = opts?.clearTimeoutFn ?? ((handle) => clearTimeout(handle as ReturnType<typeof setTimeout>));
     this.nowFn = opts?.now ?? (() => Date.now());
+    this.onEnd = opts?.onEnd;
     if (opts?.speed !== undefined) {
       this.setSpeed(opts.speed);
     }
@@ -110,6 +114,7 @@ export class ReplayEngine<T = unknown> {
 
     if (this._nextIndex >= this.events.length) {
       this._isPlaying = false;
+      this.onEnd?.();
       return;
     }
 

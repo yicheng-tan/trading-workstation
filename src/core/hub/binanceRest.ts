@@ -5,7 +5,7 @@
  * state - defaults to the real global `fetch`, which is available both on
  * the main thread and inside a SharedWorker.
  */
-import type { Candle, DepthSnapshot, KlineInterval } from '../types';
+import type { AggTradeEvent, Candle, DepthSnapshot, KlineInterval } from '../types';
 
 export type FetchFn = typeof fetch;
 
@@ -29,10 +29,28 @@ type RawKline = [
   string, // unused
 ];
 
+/** A non-2xx REST response. 429 = rate limited, 418 = IP banned for continuing after 429s. */
+export class BinanceRestError extends Error {
+  constructor(
+    public readonly status: number,
+    /** From the `Retry-After` header (seconds), when Binance sends one. */
+    public readonly retryAfterMs: number | null,
+    url: string,
+  ) {
+    super(`Binance REST request failed: ${status} (${url})`);
+    this.name = 'BinanceRestError';
+  }
+
+  get isRateLimited(): boolean {
+    return this.status === 429 || this.status === 418;
+  }
+}
+
 async function getJson<T>(fetchFn: FetchFn, url: string): Promise<T> {
   const res = await fetchFn(url);
   if (!res.ok) {
-    throw new Error(`Binance REST request failed: ${res.status} ${res.statusText} (${url})`);
+    const retryAfterSec = Number(res.headers.get('Retry-After'));
+    throw new BinanceRestError(res.status, Number.isFinite(retryAfterSec) && retryAfterSec > 0 ? retryAfterSec * 1000 : null, url);
   }
   return (await res.json()) as T;
 }
@@ -54,6 +72,36 @@ export async function fetchDepthSnapshot(
     bids: raw.bids,
     asks: raw.asks,
   };
+}
+
+/**
+ * `GET /api/v3/time` (weight 1): Binance clock minus the local clock, in ms,
+ * assuming a symmetric round trip. Event timestamps (`E`) are on Binance's
+ * clock, so latency measured against `Date.now()` needs this correction.
+ */
+export async function fetchServerTimeOffset(restBaseUrl: string, opts: BinanceRestOptions = {}): Promise<number> {
+  const fetchFn = opts.fetchFn ?? fetch;
+  const sentAt = Date.now();
+  const { serverTime } = await getJson<{ serverTime: number }>(fetchFn, `${restBaseUrl}/api/v3/time`);
+  return serverTime - (sentAt + Date.now()) / 2;
+}
+
+/**
+ * `GET /api/v3/aggTrades?symbol=<SYM>&limit=<N>` (weight 4) - the most
+ * recent aggregate trades, oldest first, mapped to the websocket `aggTrade`
+ * event shape so they go through the same classification as live prints.
+ */
+export async function fetchRecentAggTrades(
+  restBaseUrl: string,
+  symbol: string,
+  limit: number,
+  opts: BinanceRestOptions = {},
+): Promise<AggTradeEvent[]> {
+  const fetchFn = opts.fetchFn ?? fetch;
+  const sym = symbol.toUpperCase();
+  const url = `${restBaseUrl}/api/v3/aggTrades?symbol=${encodeURIComponent(sym)}&limit=${limit}`;
+  const raw = await getJson<{ a: number; p: string; q: string; T: number; m: boolean }[]>(fetchFn, url);
+  return raw.map((t) => ({ e: 'aggTrade', E: t.T, s: sym, a: t.a, p: t.p, q: t.q, T: t.T, m: t.m }));
 }
 
 /**

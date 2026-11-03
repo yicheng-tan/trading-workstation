@@ -80,31 +80,32 @@
  *     accepts the rejection. Multi-connection sharding would be the
  *     natural next step for a workstation that needs hundreds of symbols.
  *
- *  6. REST snapshot/kline-history fetch failures are logged and otherwise
- *     swallowed - the order book simply stays in its current
- *     `stale`/`uninitialized` status (visible to the trader) and will be
- *     retried the next time a gap is (re)detected or the connection
- *     (re)connects. There's no dedicated exponential-backoff retry loop
- *     purely for REST fetch failures; this piggybacks on the existing
- *     gap-detection/reconnect machinery rather than adding a second one.
+ *  6. REST depth snapshots are retried per symbol with exponential backoff
+ *     (`SNAPSHOT_RETRY_BASE_MS` doubling up to `SNAPSHOT_RETRY_MAX_MS`),
+ *     driven both by incoming diffs and by `tick()` so a book with no
+ *     traffic still recovers. A 429/418 response pauses every snapshot
+ *     fetch for `Retry-After` (or a minute). A snapshot that still leaves the
+ *     book stale (buffer didn't straddle it) counts as a failed attempt, so a
+ *     book that keeps desyncing can't turn into a stream of weight-50 calls.
  *
  *  7. Replay / fault injection. `setReplayMode(true, speed)` fetches our own
- *     bundled recorded sample (`REPLAY_SAMPLE_URL` - a short NDJSON capture
- *     of real `depthUpdate`/`aggTrade` frames, recorded by
- *     `scripts/recordSample.ts`, never an archived Binance dataset) and
- *     feeds it through `ReplayEngine` at the given speed into the exact
- *     same `dispatchEvent` routing the live socket uses, so replay is
- *     indistinguishable from "live" to every panel. While replay is
- *     active, the live socket is left connected (so reconnect/backoff
- *     machinery and connection-status reporting stay real and stopping
- *     replay returns to live instantly) but its inbound frames are
- *     dropped rather than dispatched - interleaving live and replayed
- *     update-ids into the same `OrderBookManager` would corrupt it.
- *     `injectFault('dropConnection')` closes the live
- *     socket to exercise `ReconnectPolicy`; `injectFault('gap', symbol)`
- *     arms a one-shot flag consumed by the next `depthUpdate` for that
- *     symbol (live or replayed), shifting its update-id range via
- *     `injectSequenceGap` to exercise `OrderBookManager`'s resync path.
+ *     bundled recording (`REPLAY_SAMPLE_URL`, made by
+ *     `scripts/recordSample.ts` - never an archived Binance dataset): live
+ *     depth diffs + trades for a few symbols plus one REST depth snapshot
+ *     per symbol, captured exactly as the live sync procedure sees them.
+ *     It's fed through `ReplayEngine` at the given speed into the same
+ *     `dispatchEvent` routing the live socket uses, and loops until stopped.
+ *     Only the recorded symbols switch to replay: their order books and
+ *     tapes are reset at the start of every loop and rebuilt from the
+ *     recording (live and recorded update ids must never mix in one
+ *     `OrderBookManager`), and live depth/trade frames and REST resyncs for
+ *     those symbols are suppressed meanwhile. Every other stream stays live,
+ *     and the socket stays connected so reconnect/status stay real.
+ *     Stopping replay resets those symbols and resyncs them from live data.
+ *     `injectFault('dropConnection')` closes the live socket to exercise
+ *     `ReconnectPolicy`; `injectFault('gap', symbol)` arms a one-shot
+ *     update-id shift on the next `depthUpdate` for that symbol (live or
+ *     replayed) to exercise `OrderBookManager`'s gap detection and resync.
  */
 import type {
   AggTradeEvent,
@@ -115,6 +116,7 @@ import type {
   MiniTickerEvent,
   StreamRef,
   Symbol,
+  TradeTapeEntry,
   WatchlistRow,
 } from '../types';
 import { streamName as streamNameFor } from '../types';
@@ -134,20 +136,36 @@ import { SubscriptionManager } from '../connection/SubscriptionManager';
 import { ReconnectPolicy, type Host } from '../connection/ReconnectPolicy';
 import { PortBackpressureGate } from './PortBackpressureGate';
 import { restBaseUrl, wsControlUrl } from './hosts';
-import { fetchDepthSnapshot, fetchKlines, type FetchFn } from './binanceRest';
+import { BinanceRestError, fetchDepthSnapshot, fetchKlines, fetchRecentAggTrades, type FetchFn } from './binanceRest';
 import { classifyTrade, TapeBuffer } from '../panels/tradeTape';
-import { applyKlineEvent } from '../panels/candles';
+import { applyKlineEvent, mergeHistory } from '../panels/candles';
 import { applyMiniTicker } from '../panels/watchlist';
 import { ReplayEngine, type RecordedEvent } from '../replay/ReplayEngine';
 import { injectSequenceGap } from '../replay/faultInjection';
 
-/** Bundled short recording of our own live Binance stream, used for replay/stress testing (never archived Binance datasets). */
-const REPLAY_SAMPLE_URL = '/samples/sample-btcusdt.ndjson';
-/** Raw shape of one recorded line: the combined-stream envelope exactly as Binance sent it over the wire. */
+/** Bundled short recording of our own live Binance streams, used for replay/stress testing (never archived Binance datasets). */
+const REPLAY_SAMPLE_URL = '/samples/replay-sample.ndjson';
+/**
+ * Raw shape of one recorded line: the combined-stream envelope exactly as
+ * Binance sent it, or a `<symbol>@depthSnapshot` line holding the REST
+ * snapshot taken during recording.
+ */
 interface RecordedEnvelope {
   stream: string;
   data: unknown;
 }
+interface RecordedDepthSnapshot {
+  s: string;
+  lastUpdateId: number;
+  bids: [string, string][];
+  asks: [string, string][];
+}
+
+const SNAPSHOT_RETRY_BASE_MS = 1000;
+const SNAPSHOT_RETRY_MAX_MS = 30_000;
+const RATE_LIMIT_DEFAULT_PAUSE_MS = 60_000;
+/** Candles kept per (symbol, interval) for chart history; matches the REST seed size. */
+const CANDLE_HISTORY_LIMIT = 500;
 
 /** Most recent N trades kept per symbol, and the size of the snapshot pushed to trade-tape ports (see trade-off #3 above). */
 const TRADE_BUFFER_SIZE = 200;
@@ -239,18 +257,28 @@ export class DataHub {
 
   private orderBooks = new Map<Symbol, OrderBookManager>();
   private resyncInFlight = new Set<Symbol>();
+  /** Per-symbol snapshot backoff: consecutive failed attempts and the earliest time the next one may start. */
+  private snapshotRetry = new Map<Symbol, { attempts: number; notBefore: number }>();
+  /** Set from a 429/418 `Retry-After`; no snapshot fetch starts before this. */
+  private restPausedUntil = 0;
   private tradeBuffers = new Map<Symbol, TapeBuffer>();
   private candles = new Map<string, Candle>(); // `${symbol}:${interval}` -> latest candle
+  private candleHistory = new Map<string, Candle[]>(); // `${symbol}:${interval}` -> oldest-first history
   private watchlistRows = new Map<Symbol, WatchlistRow>();
+  private hasConnectedOnce = false;
 
   // --- Replay / fault injection ----------------------------------------
   private replayEngine: ReplayEngine<RecordedEnvelope> | null = null;
   private replayActive = false;
+  /** Symbols currently driven by the recording instead of the live feed. */
+  private replaySymbols = new Set<Symbol>();
   private pendingGapSymbol: Symbol | null = null;
 
   constructor(opts: DataHubOptions = {}) {
     this.webSocketImpl = opts.webSocketImpl ?? (WebSocket as unknown as WebSocketCtorLike);
-    this.fetchImpl = opts.fetchImpl ?? fetch;
+    // Wrapped, not stored bare: `this.fetchImpl(...)` would call the global
+    // fetch with `this === DataHub`, which throws "Illegal invocation".
+    this.fetchImpl = opts.fetchImpl ?? ((input, init) => fetch(input, init));
     this.now = opts.now ?? (() => Date.now());
     this.host = opts.initialHost ?? 'primary';
     this.connStatusSince = this.now();
@@ -291,15 +319,21 @@ export class DataHub {
 
   /**
    * Enters or exits replay mode (see design note #7 at the top of this
-   * file). Fetches our own bundled recorded sample on first enable and
-   * replays it through `ReplayEngine` at `speed`, feeding the exact same
-   * `dispatchEvent` path the live socket uses.
+   * file). Fetches our own bundled recording on first enable and loops it
+   * through `ReplayEngine` at `speed`; calling again while active only
+   * changes the speed.
    */
   setReplayMode(enabled: boolean, speed = 1): void {
     if (!enabled) {
+      if (!this.replayActive) return;
       this.replayEngine?.stop();
       this.replayEngine = null;
       this.replayActive = false;
+      const symbols = Array.from(this.replaySymbols);
+      this.replaySymbols.clear();
+      // Back to live: rebuild those books from a fresh live snapshot.
+      this.resetReplaySymbols(symbols);
+      for (const symbol of symbols) this.requestResync(symbol);
       return;
     }
 
@@ -310,26 +344,70 @@ export class DataHub {
     }
 
     void this.fetchImpl(REPLAY_SAMPLE_URL)
-      .then((res) => res.text())
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.text();
+      })
       .then((text) => {
         const events: RecordedEvent<RecordedEnvelope>[] = text
           .split('\n')
           .filter((line) => line.trim().length > 0)
           .map((line) => JSON.parse(line) as RecordedEvent<RecordedEnvelope>);
 
-        if (events.length === 0 || !this.replayActive) return;
+        if (events.length === 0 || !this.replayActive || this.replayEngine) return;
 
-        this.replayEngine = new ReplayEngine<RecordedEnvelope>(
-          events,
-          (envelope) => this.dispatchEvent(envelope.data),
-          { speed },
-        );
-        this.replayEngine.start();
+        for (const evt of events) {
+          const symbol = (evt.payload.data as { s?: string } | null)?.s;
+          if (symbol) this.replaySymbols.add(symbol.toUpperCase());
+        }
+        const engine = new ReplayEngine<RecordedEnvelope>(events, (envelope) => this.dispatchReplayed(envelope), {
+          speed,
+          onEnd: () => {
+            // Loop: every pass starts from a clean book, like a fresh sync.
+            this.resetReplaySymbols(Array.from(this.replaySymbols));
+            engine.start();
+          },
+        });
+        this.replayEngine = engine;
+        this.resetReplaySymbols(Array.from(this.replaySymbols));
+        engine.start();
       })
       .catch((err) => {
         console.error('[DataHub] failed to load replay sample:', err);
         this.replayActive = false;
+        this.replaySymbols.clear();
       });
+  }
+
+  private dispatchReplayed(envelope: RecordedEnvelope): void {
+    if (envelope.stream.endsWith('@depthSnapshot')) {
+      const snap = envelope.data as RecordedDepthSnapshot;
+      const manager = this.orderBooks.get(snap.s);
+      if (!manager) return;
+      manager.applySnapshot({ lastUpdateId: snap.lastUpdateId, bids: snap.bids, asks: snap.asks });
+      this.broadcastOrderBook(snap.s);
+      return;
+    }
+    this.dispatchEvent(envelope.data);
+  }
+
+  /** Fresh, unsynced books and empty tapes for `symbols` (keeping every subscriber attached). */
+  private resetReplaySymbols(symbols: Symbol[]): void {
+    for (const symbol of symbols) {
+      if (this.orderBooks.has(symbol)) {
+        this.orderBooks.set(symbol, new OrderBookManager(symbol));
+        this.snapshotRetry.delete(symbol);
+        this.broadcastOrderBook(symbol);
+      }
+      if (this.tradeBuffers.has(symbol)) {
+        this.tradeBuffers.set(symbol, new TapeBuffer(TRADE_BUFFER_SIZE));
+        this.broadcastToGateKey(`trades:${symbol}`, [] as TradeTapeEntry[], (trades, seq) => ({ type: 'trades', seq, symbol, trades }));
+      }
+    }
+  }
+
+  private isReplaySymbol(symbol: Symbol): boolean {
+    return this.replayActive && this.replaySymbols.has(symbol);
   }
 
   /** `'dropConnection'` exercises the live reconnect path; `'gap'` arms a one-shot update-id shift on the next depthUpdate for `symbol` (live or replayed) to exercise OrderBookManager's resync path. */
@@ -349,6 +427,7 @@ export class DataHub {
     this.replayEngine?.stop();
     this.replayEngine = null;
     this.replayActive = false;
+    this.replaySymbols.clear();
     if (this.ws) {
       this.ws.onopen = null;
       this.ws.onmessage = null;
@@ -387,7 +466,7 @@ export class DataHub {
         if (isNew) this.orderBooks.set(symbol, new OrderBookManager(symbol));
         this.addStreamOwner(sName, ref, subKey);
         if (isNew) {
-          void this.syncOrderBook(symbol);
+          this.requestResync(symbol);
         } else {
           const manager = this.orderBooks.get(symbol)!;
           this.deliverTo(msg.clientId, gateKey, manager.getView(), (book, seq) => ({ type: 'orderBook', seq, book }));
@@ -396,8 +475,10 @@ export class DataHub {
       }
       case 'aggTrade': {
         const symbol = ref.symbol!;
-        if (!this.tradeBuffers.has(symbol)) this.tradeBuffers.set(symbol, new TapeBuffer(TRADE_BUFFER_SIZE));
+        const isNew = !this.tradeBuffers.has(symbol);
+        if (isNew) this.tradeBuffers.set(symbol, new TapeBuffer(TRADE_BUFFER_SIZE));
         this.addStreamOwner(sName, ref, subKey);
+        if (isNew && !this.isReplaySymbol(symbol)) void this.seedTradeTape(symbol);
         const buf = this.tradeBuffers.get(symbol)!;
         if (buf.entries.length > 0) {
           this.deliverTo(msg.clientId, gateKey, buf.entries, (trades, seq) => ({ type: 'trades', seq, symbol, trades }));
@@ -408,11 +489,13 @@ export class DataHub {
         const symbol = ref.symbol!;
         const interval = ref.interval!;
         const key = `${symbol}:${interval}`;
-        const isNew = !this.candles.has(key);
+        const isNew = !this.streamOwners.has(sName);
         this.addStreamOwner(sName, ref, subKey);
         if (isNew) {
           void this.seedCandleHistory(symbol, interval);
         } else {
+          const history = this.candleHistory.get(key);
+          if (history) this.sendCandleHistory(msg.clientId, symbol, interval, history);
           const candle = this.candles.get(key);
           if (candle) this.deliverTo(msg.clientId, gateKey, candle, (c, seq) => ({ type: 'candle', seq, symbol, interval, candle: c }));
         }
@@ -547,12 +630,14 @@ export class DataHub {
       case 'depth':
         this.orderBooks.delete(ref.symbol!);
         this.resyncInFlight.delete(ref.symbol!);
+        this.snapshotRetry.delete(ref.symbol!);
         break;
       case 'aggTrade':
         this.tradeBuffers.delete(ref.symbol!);
         break;
       case 'kline':
         this.candles.delete(`${ref.symbol}:${ref.interval}`);
+        this.candleHistory.delete(`${ref.symbol}:${ref.interval}`);
         break;
       case 'miniTicker':
       case 'miniTickerAll':
@@ -617,20 +702,41 @@ export class DataHub {
   // REST sync helpers
   // ------------------------------------------------------------------
 
+  /** Starts a depth snapshot fetch for `symbol` unless one is in flight, it's backing off, REST is rate-limited, or the symbol is being replayed. */
+  private requestResync(symbol: Symbol): void {
+    if (this.isReplaySymbol(symbol) || this.resyncInFlight.has(symbol)) return;
+    const now = this.now();
+    if (now < this.restPausedUntil) return;
+    const retry = this.snapshotRetry.get(symbol);
+    if (retry && now < retry.notBefore) return;
+    void this.syncOrderBook(symbol);
+  }
+
   private async syncOrderBook(symbol: Symbol): Promise<void> {
-    if (this.resyncInFlight.has(symbol)) return;
     this.resyncInFlight.add(symbol);
     try {
       const snapshot = await fetchDepthSnapshot(restBaseUrl(this.host), symbol, { fetchFn: this.fetchImpl });
       const manager = this.orderBooks.get(symbol);
-      if (!manager) return; // unsubscribed while the fetch was in flight.
+      if (!manager || this.isReplaySymbol(symbol)) return; // unsubscribed / switched to replay meanwhile.
       manager.applySnapshot(snapshot);
+      if (manager.status === 'live') this.snapshotRetry.delete(symbol);
+      else this.noteSnapshotFailure(symbol);
       this.broadcastOrderBook(symbol);
     } catch (err) {
+      if (err instanceof BinanceRestError && err.isRateLimited) {
+        this.restPausedUntil = Math.max(this.restPausedUntil, this.now() + (err.retryAfterMs ?? RATE_LIMIT_DEFAULT_PAUSE_MS));
+      }
+      this.noteSnapshotFailure(symbol);
       console.error(`[DataHub] failed to fetch depth snapshot for ${symbol}:`, err);
     } finally {
       this.resyncInFlight.delete(symbol);
     }
+  }
+
+  private noteSnapshotFailure(symbol: Symbol): void {
+    const attempts = (this.snapshotRetry.get(symbol)?.attempts ?? 0) + 1;
+    const delayMs = Math.min(SNAPSHOT_RETRY_MAX_MS, SNAPSHOT_RETRY_BASE_MS * 2 ** (attempts - 1));
+    this.snapshotRetry.set(symbol, { attempts, notBefore: this.now() + delayMs });
   }
 
   private broadcastOrderBook(symbol: Symbol): void {
@@ -642,15 +748,50 @@ export class DataHub {
   private async seedCandleHistory(symbol: Symbol, interval: KlineInterval): Promise<void> {
     const key = `${symbol}:${interval}`;
     try {
-      const history = await fetchKlines(restBaseUrl(this.host), symbol, interval, { fetchFn: this.fetchImpl });
+      const fetched = await fetchKlines(restBaseUrl(this.host), symbol, interval, { fetchFn: this.fetchImpl });
       if (!this.streamOwners.has(streamNameFor({ kind: 'kline', symbol, interval }))) return; // unsubscribed meanwhile
-      const latest = history[history.length - 1];
-      if (!latest) return;
-      this.candles.set(key, latest);
-      this.broadcastToGateKey(`candle:${symbol}:${interval}`, latest, (c, seq) => ({ type: 'candle', seq, symbol, interval, candle: c }));
+      let history = fetched.slice(-CANDLE_HISTORY_LIMIT);
+      // A live kline may already have arrived while REST was in flight; it's newer than the REST bar.
+      const live = this.candles.get(key);
+      const last = history[history.length - 1];
+      if (live && (!last || live.openTime >= last.openTime)) history = mergeHistory(history, live);
+      if (history.length === 0) return;
+      this.candleHistory.set(key, history);
+      this.candles.set(key, history[history.length - 1]);
+      for (const clientId of this.listeners.get(`candle:${key}`) ?? []) {
+        this.sendCandleHistory(clientId, symbol, interval, history);
+      }
     } catch (err) {
       console.error(`[DataHub] failed to fetch kline history for ${symbol} ${interval}:`, err);
     }
+  }
+
+  /**
+   * Fills a new tape with the latest REST prints so a quiet symbol isn't
+   * blank until its next trade. Live prints that arrived meanwhile are kept
+   * and win over REST duplicates (same aggregate-trade id).
+   */
+  private async seedTradeTape(symbol: Symbol): Promise<void> {
+    const buffer = this.tradeBuffers.get(symbol);
+    try {
+      const events = await fetchRecentAggTrades(restBaseUrl(this.host), symbol, TRADE_BUFFER_SIZE, { fetchFn: this.fetchImpl });
+      // Unsubscribed, reset for replay, or replaced meanwhile: this backfill no longer applies.
+      if (!buffer || this.tradeBuffers.get(symbol) !== buffer || this.isReplaySymbol(symbol)) return;
+      const live = buffer.entries;
+      const oldestLiveId = live.length > 0 ? live[live.length - 1].id : Infinity;
+      const seeded = new TapeBuffer(TRADE_BUFFER_SIZE);
+      for (const evt of events) if (evt.a < oldestLiveId) seeded.push(classifyTrade(evt, LARGE_TRADE_NOTIONAL_USD));
+      for (let i = live.length - 1; i >= 0; i--) seeded.push(live[i]);
+      this.tradeBuffers.set(symbol, seeded);
+      this.broadcastToGateKey(`trades:${symbol}`, seeded.entries, (trades, seq) => ({ type: 'trades', seq, symbol, trades }));
+    } catch (err) {
+      console.error(`[DataHub] failed to fetch recent trades for ${symbol}:`, err);
+    }
+  }
+
+  /** History is a one-off bulk payload, so it bypasses the latest-state-wins gate (which would let a live candle overwrite it). */
+  private sendCandleHistory(clientId: string, symbol: Symbol, interval: KlineInterval, candles: Candle[]): void {
+    this.ports.get(clientId)?.send({ type: 'candleHistory', symbol, interval, candles });
   }
 
   // ------------------------------------------------------------------
@@ -694,7 +835,16 @@ export class DataHub {
     this.flushSubscriptions();
 
     // Binance requires a fresh REST snapshot after any disconnect/reconnect.
-    for (const symbol of this.orderBooks.keys()) void this.syncOrderBook(symbol);
+    this.snapshotRetry.clear();
+    for (const symbol of this.orderBooks.keys()) this.requestResync(symbol);
+
+    // Klines missed while disconnected would leave holes in the charts.
+    if (this.hasConnectedOnce) {
+      for (const ref of this.streamRefByName.values()) {
+        if (ref.kind === 'kline') void this.seedCandleHistory(ref.symbol!, ref.interval!);
+      }
+    }
+    this.hasConnectedOnce = true;
   }
 
   private onSocketClose(): void {
@@ -735,6 +885,12 @@ export class DataHub {
     if (this.connectedAtMs !== null && this.reconnectPolicy.shouldProactivelyReconnect(this.now(), this.connectedAtMs)) {
       this.proactiveReconnect();
     }
+    // Retry books whose snapshot failed or didn't line up, even if no diffs arrive to trigger it.
+    if (this.connectedAtMs !== null) {
+      for (const [symbol, manager] of this.orderBooks) {
+        if (manager.status !== 'live') this.requestResync(symbol);
+      }
+    }
   }
 
   private flushSubscriptions(): void {
@@ -758,16 +914,16 @@ export class DataHub {
   // ------------------------------------------------------------------
 
   private handleSocketMessage(raw: string): void {
-    // While replay is active, the live socket stays connected (reconnect
-    // machinery + connection-status stay real) but its frames are dropped -
-    // see design note #7 at the top of this file.
-    if (this.replayActive) return;
-
     let data: unknown;
     try {
       data = JSON.parse(raw);
     } catch {
       return;
+    }
+    // Live book/tape frames for replayed symbols are dropped (design note #7).
+    if (this.replayActive && typeof data === 'object' && data !== null && 's' in data) {
+      const evt = data as { e?: string; s: string };
+      if ((evt.e === 'depthUpdate' || evt.e === 'aggTrade') && this.replaySymbols.has(evt.s)) return;
     }
     this.dispatchEvent(data);
   }
@@ -811,7 +967,7 @@ export class DataHub {
     }
     manager.applyDiff(evt);
     if (manager.needsResync()) {
-      void this.syncOrderBook(evt.s);
+      this.requestResync(evt.s);
     }
     this.broadcastOrderBook(evt.s);
   }
@@ -836,6 +992,16 @@ export class DataHub {
     }
     const candle = applyKlineEvent(this.candles.get(key) ?? null, evt);
     this.candles.set(key, candle);
+    const history = this.candleHistory.get(key);
+    const last = history?.[history.length - 1];
+    if (history && last) {
+      if (candle.openTime === last.openTime) {
+        history[history.length - 1] = candle;
+      } else if (candle.openTime > last.openTime) {
+        history.push(candle);
+        if (history.length > CANDLE_HISTORY_LIMIT) history.shift();
+      }
+    }
     this.broadcastToGateKey(`candle:${evt.s}:${evt.k.i}`, candle, (c, seq) => ({
       type: 'candle',
       seq,

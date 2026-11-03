@@ -9,6 +9,11 @@ the "AI agent session exports" deliverable.
   baseline, delegating to the four subagents below, and all integration
   work afterward (bug fixes, wiring replay/fault-injection end-to-end,
   building the app shell, writing `README.md`/`PERF.md`, this export).
+  It also covers the later review pass: a code review against the PRD,
+  the blocker and high-severity fixes, the headless-Chrome smoke test and
+  benchmark (`scripts/smoke.mjs`), and the documentation updates. The
+  session was long enough that Cursor summarised its context partway
+  through, so some summary messages appear in the log.
 - **`subagent-1-data-hub.jsonl`** — implemented order book sync
   (`OrderBookManager`), connection/subscription management, reconnect
   policy, backpressure, and the `SharedWorker` itself, against the

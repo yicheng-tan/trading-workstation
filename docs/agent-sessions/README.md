@@ -14,6 +14,12 @@ the "AI agent session exports" deliverable.
   benchmark (`scripts/smoke.mjs`), and the documentation updates. The
   session was long enough that Cursor summarised its context partway
   through, so some summary messages appear in the log.
+- **`review-and-qol-session.jsonl`** — a second, separate chat: an
+  independent code review of the app, then half of the QoL pass (symbol
+  autocomplete and validation, session autosave, watchlist editing,
+  duplicate panel). It ran concurrently with the orchestrator, which took
+  the other half (link-group colours, compact chrome, order-book grouping)
+  and the README rewrite, on separate files.
 - **`subagent-1-data-hub.jsonl`** — implemented order book sync
   (`OrderBookManager`), connection/subscription management, reconnect
   policy, backpressure, and the `SharedWorker` itself, against the
@@ -35,7 +41,7 @@ as part of absolute file paths, e.g. in tool-call arguments) — no other
 content, wording, tool output, or ordering has been edited. No API keys,
 tokens, or other secrets were used anywhere in this build (the app only
 talks to Binance's public, keyless market-data endpoints), and a pattern
-scan for common secret-like strings across all five files turned up
+scan for common secret-like strings across all six files turned up
 nothing. Still, skim before sharing further if that matters for your
 situation — this redaction was automated, not manually reviewed line by
 line.

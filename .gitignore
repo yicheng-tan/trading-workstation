@@ -9,3 +9,4 @@ coverage/
 # One curated copy is committed under public/samples/ for the app to replay.
 /samples/
 .vite/
+*.tsbuildinfo

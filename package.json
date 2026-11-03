@@ -7,13 +7,15 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "smoke": "npm run build && node scripts/smoke.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "lint": "eslint . --ext .ts,.tsx",
+    "lint": "eslint . --ext .ts,.tsx,.mjs",
     "typecheck": "tsc -b --noEmit",
     "record:sample": "tsx scripts/recordSample.ts",
-    "bench": "tsx scripts/runBenchmark.ts"
+    "bench": "npm run build && node scripts/smoke.mjs --bench",
+    "bench:manual": "tsx scripts/runBenchmark.ts"
   },
   "dependencies": {
     "dockview": "^8.8.3",

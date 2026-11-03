@@ -39,55 +39,96 @@ reports aren't just "trust me," the arithmetic is pinned down.
 
 At runtime, `PerfOverlay` (`src/perf/PerfOverlay.tsx`) drives its own
 `requestAnimationFrame` loop that feeds real frame-to-frame deltas into
-`PerfMetrics.recordFrame()`, and samples `Date.now() - row.updatedAt` off
-the shared watchlist stream into `recordMessageLatency()` — a real,
+`PerfMetrics.recordFrame()`, and samples latency off the shared
+`!miniTicker@arr` stream into `recordMessageLatency()` — a real,
 always-available live-data timestamp regardless of which panels happen to
-be open. The overlay's own on-screen text is throttled to a 2×/second
+be open. Latency is Binance's event time `E` → main-thread receipt,
+corrected for the local clock's offset from Binance's (one weight-1
+`GET /api/v3/time` at startup; on the machine these results came from, the
+local clock ran 4.85s ahead, which uncorrected would have swamped
+everything). Only rows whose event time moved are sampled, since every
+message carries all known rows but Binance only refreshes symbols that
+traded. The overlay's own on-screen text is throttled to a 2×/second
 `setInterval`, decoupled from the measurement loop, so *watching* the
 overlay never itself perturbs the thing it's measuring.
 
 ## Reproducing a benchmark run
 
+### Automated (headless Chrome, ~2.5 minutes)
+
+```bash
+npm run bench
+```
+
+This builds the app, serves `dist/` with `vite preview`, and drives a real
+headless Chrome over the DevTools protocol (`scripts/smoke.mjs --bench`,
+zero extra dependencies; set `CHROME_PATH` if Chrome isn't found). It runs
+the full smoke suite and then:
+
+1. Seeds a **30-panel / 10-symbol default layout** (10 order books, 10
+   time & sales, 9 charts and 1 watchlist across `BTCUSDT ETHUSDT SOLUSDT
+   XRPUSDT DOGEUSDT BNBUSDT SUIUSDT PEPEUSDT ADAUSDT LINKUSDT`) and reloads.
+   It measures, in the page via `performance.now()`, when each panel first
+   shows live data. The check fails if any of the 30 takes longer than 5s.
+2. Clicks the overlay's **"Run 60s Benchmark"** on that live workspace.
+3. Starts **10× replay** (BTC/ETH/SOL switch to the recording, the other
+   seven stay live) and runs the 60s benchmark again.
+4. Writes both reports plus the restore timings to
+   `perf-results/bench-<timestamp>.json`.
+
+### Manual (any browser)
+
 1. `npm install && npm run dev`, open `http://localhost:5173`.
 2. Build the reference scenario: add 10 depth-ladder panels, 10 trade-tape
-   panels, and 10 candlestick-chart panels, one of each per symbol across
-   `BTCUSDT, ETHUSDT, BNBUSDT, SOLUSDT, XRPUSDT, ADAUSDT, DOGEUSDT,
-   AVAXUSDT, LINKUSDT, DOTUSDT` (the app's default watchlist symbol list,
-   `DEFAULT_WATCHLIST_SYMBOLS` in `src/panels/registry.tsx`). Optionally
-   pop a few out into separate windows to also exercise multi-window
-   rendering.
+   panels, and 10 candlestick-chart panels, one of each per symbol (any
+   liquid USDT pairs). Optionally pop a few out into separate windows to
+   also exercise multi-window rendering. Save it as a layout and mark it
+   default to also time the restore on reload.
 3. Click the **"Perf · _fps_"** pill (bottom-right) to expand the overlay.
 4. Click **"Run 60s Benchmark"**. It samples `PerfMetrics` every 500ms for
    60s and downloads `benchmark-<timestamp>.json`
    (`src/perf/benchmarkRunner.ts`) containing `fps`/`frameTimeMs`/
-   `latencyMs` percentiles, `longTaskCount`, and `sampleCount` — attach
-   that file as your evidence.
+   `latencyMs` percentiles, `longTaskCount`, and `sampleCount`.
 5. For stress headroom: open the **"Stress testing"** panel (bottom-left),
    start replay at **10×**, and re-run the benchmark. "Drop Connection"
    and "Inject Sequence Gap" exercise the resilience requirements in
    §5 of the brief — every affected panel's status badge should visibly
    flip to `reconnecting`/`stale` and recover on its own.
 
-`scripts/runBenchmark.ts` (`npm run bench`) is a lightweight guide script —
-it checks the dev server is reachable and prints these same steps. It's
-intentionally **not** a headless-browser-automated benchmark: that would
-need a dependency like Playwright, which wasn't added without checking in
-first (see `README.md` → Known gaps).
+`npm run bench:manual` (`scripts/runBenchmark.ts`) checks the dev server is
+reachable and prints these same steps.
 
 ## Results
 
-**Honest status:** this session built and integrated the full measurement
-pipeline (unit-tested percentile/rolling-window math, the live overlay, the
-one-click benchmark exporter) and verified it compiles, type-checks, and
-builds correctly end-to-end — but this agent's environment has no
-browser-automation tool available, so no live 30-panel/10-symbol browser
-session was actually driven to produce a real `benchmark-*.json` during
-this build. The dev server was smoke-tested (HTTP 200 on the app shell,
-the SharedWorker's own bundle chunk, and the bundled replay sample; see the
-build log in the git history) but that only confirms the app *loads* — not
-its steady-state frame timing under load.
+From `npm run bench` on 2026-11-03, committed as
+[`perf-results/`](perf-results/): Chrome 156 headless, 1920×1080,
+Windows 11, production build, live Binance Spot data.
 
-**Action for whoever runs this next:** follow "Reproducing a benchmark
-run" above once, and paste/attach the downloaded JSON here (or commit it
-under `perf-results/`). Until then, treat the targets in the table above
-as the committed bar, not yet a verified result.
+| Scenario | First live data | Frame time p50 / p95 / max | Long tasks (>50ms) | Latency p50 / p95 |
+|---|---|---|---|---|
+| **Restore 30-panel / 10-symbol default layout** | first panel 286ms, median 354ms, **all 30 by 1,121ms** after navigation (target < 5s) | — | — | — |
+| **30 panels live, 60s** | — | 7.0 / 7.0 / 13.8ms | **0** | 1,008 / 1,022ms |
+| **Same + 10× replay, 60s** | — | 7.0 / 7.0 / 7.0ms | **0** | 982 / 1,012ms |
+
+Across several runs while this was being built, "all 30 live" landed
+between 0.5s and 2.3s.
+
+How to read these honestly:
+
+- **Frame time is pinned at the display interval.** Headless Chrome ticked
+  rAF at ~144Hz here, and 7.0ms is that interval, so p95 = p50 = 7.0ms means
+  no frame missed its slot. Frame time can't show how much of the 7ms
+  budget was used. Long tasks (0 in both runs) are the stronger signal that
+  the main thread never blocked.
+- **Latency is ~1s and nearly constant, and that's the stream, not this
+  app.** p50 and p95 are within ~15–30ms of each other. `!miniTicker@arr`
+  pushes once per second, and its `E` timestamps sit about one push
+  interval before delivery. A queueing problem in our pipeline would show
+  up as a wide spread, not a fixed offset. So against the 50ms target this
+  metric is inconclusive rather than failed: it bounds Binance's cadence
+  for this stream, not our own overhead. Measuring our pipeline properly
+  is listed under "What I'd do with another day" in the README.
+- **Headless isn't a trader's GPU-composited multi-monitor desktop.** These
+  numbers show relative headroom (10× replay costs nothing measurable)
+  and that restore sits far under target. Repeat the manual run on real
+  hardware before quoting them as production numbers.

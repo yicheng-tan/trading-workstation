@@ -57,12 +57,32 @@ export class UnsupportedLayoutVersionError extends Error {
   }
 }
 
+/**
+ * Narrow helper: reads a `schemaVersion` field off an unknown value without
+ * throwing, so version-mismatch detection can run before (and independently
+ * of) full zod validation.
+ */
+function readSchemaVersion(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null) return undefined;
+  return (value as { schemaVersion?: unknown }).schemaVersion;
+}
+
 /** Parses and validates a raw layout document, raising a clear error for unknown future versions. */
-export function parseLayoutDocument(_raw: unknown): LayoutDocument {
-  throw new Error('not implemented');
+export function parseLayoutDocument(raw: unknown): LayoutDocument {
+  const foundVersion = readSchemaVersion(raw);
+  if (foundVersion !== undefined && foundVersion !== CURRENT_LAYOUT_SCHEMA_VERSION) {
+    throw new UnsupportedLayoutVersionError(foundVersion);
+  }
+  return layoutDocumentSchemaV1.parse(raw);
 }
 
 /** Parses and validates a full export envelope (as written by LayoutStore.exportJson). */
-export function parseLayoutExportEnvelope(_raw: unknown): LayoutExportEnvelope {
-  throw new Error('not implemented');
+export function parseLayoutExportEnvelope(raw: unknown): LayoutExportEnvelope {
+  const embeddedLayout =
+    typeof raw === 'object' && raw !== null ? (raw as { layout?: unknown }).layout : undefined;
+  const foundVersion = readSchemaVersion(embeddedLayout);
+  if (foundVersion !== undefined && foundVersion !== CURRENT_LAYOUT_SCHEMA_VERSION) {
+    throw new UnsupportedLayoutVersionError(foundVersion);
+  }
+  return layoutExportEnvelopeSchema.parse(raw);
 }
